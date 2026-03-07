@@ -98,8 +98,8 @@ inline const std::string SERIAL_PORTS[2] = {"/dev/ttyUSB0", "/dev/ttyUSB1"};
 
 // ========================== PD Control ==========================
 // Joint-side PD gains (from mybot_config.py control class)
-constexpr float KP_JOINT = 40.0f; // [N·m/rad]
-constexpr float KD_JOINT = 1.0f;  // [N·m·s/rad]
+constexpr float KP_JOINT = 80.0f; // [N·m/rad]
+constexpr float KD_JOINT = 2.0f;  // [N·m·s/rad]
 
 // Motor-side PD gains (converted through gear ratio)
 constexpr float KP_MOTOR = KP_JOINT / (GEAR_RATIO * GEAR_RATIO); // ≈ 0.999

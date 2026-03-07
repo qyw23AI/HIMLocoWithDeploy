@@ -26,7 +26,7 @@ import numpy as np
 # ROS2
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import JointState
 
@@ -131,21 +131,31 @@ class MujocoSimNode(Node):
         self.cmd_lock = threading.Lock()
         self.cmd_event = threading.Event()
 
-        # ---- ROS2 Publishers ----
-        qos = QoSProfile(depth=10)
+        # ---- ROS2 QoS Profiles ----
+        # Low-latency QoS for real-time control/sensor data:
+        #   BEST_EFFORT, depth=1, VOLATILE
+        qos_fast = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        # Standard QoS for visualization (latency-insensitive)
+        qos_viz = QoSProfile(depth=10)
 
+        # ---- ROS2 Publishers ----
         self.pub_joint_state = self.create_publisher(
-            Float32MultiArray, '/mujoco/joint_state', qos)
+            Float32MultiArray, '/mujoco/joint_state', qos_fast)
 
         self.pub_imu = self.create_publisher(
-            Float32MultiArray, '/fast_livo2/state6', qos)
+            Float32MultiArray, '/fast_livo2/state6', qos_fast)
 
         self.pub_rviz_joint = self.create_publisher(
-            JointState, '/joint_states', qos)
+            JointState, '/joint_states', qos_viz)
 
         # ---- ROS2 Subscriber ----
         self.sub_cmd = self.create_subscription(
-            Float32MultiArray, '/mujoco/joint_cmd', self.cmd_callback, qos)
+            Float32MultiArray, '/mujoco/joint_cmd', self.cmd_callback, qos_fast)
 
         self.get_logger().info('MuJoCo sim node initialized.')
         self.get_logger().info(f'  Sim DT: {SIM_DT}s, Decimation: {DECIMATION}, Control DT: {CONTROL_DT}s')

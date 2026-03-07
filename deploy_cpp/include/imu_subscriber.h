@@ -20,8 +20,7 @@ namespace deploy {
 
 class IMUSubscriber : public rclcpp::Node {
 public:
-  explicit IMUSubscriber(const std::string &topic = "/fast_livo2/state6",
-                         int qos_depth = 10);
+  explicit IMUSubscriber(const std::string &topic = "/fast_livo2/state6_imu_prop");
 
   /// Get angular velocity [wx, wy, wz] in body frame [rad/s].
   std::array<float, 3> get_ang_vel() const;

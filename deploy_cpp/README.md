@@ -32,7 +32,9 @@ deploy_cpp/
 │   ├── robot_visualizer.cpp    # RViz JointState 发布实现
 │   └── motor_debug_node.cpp    # 电机调试节点 (独立)
 ├── config/
-│   └── mybot.rviz              # RViz2 配置文件
+│   ├── mybot.rviz              # RViz2 配置文件
+│   ├── cyclonedds.xml          # CycloneDDS + SHM 零拷贝配置
+│   └── setup_cyclonedds.sh     # DDS 切换脚本 (source 后生效)
 ├── launch/
 │   ├── deploy.launch.py        # 主部署 launch 文件
 │   ├── visualize.launch.py     # RViz 可视化 launch 文件
@@ -58,6 +60,7 @@ deploy_cpp/
 - **robot_state_publisher** (URDF → TF 变换发布)
 - **joint_state_publisher** (关节状态发布, 可视化用)
 - **rviz2** (3D 可视化)
+- **CycloneDDS**（可选，推荐实机部署使用）
 
 ### 安装 LibTorch
 
@@ -80,12 +83,63 @@ sudo apt install ros-humble-robot-state-publisher \
                  ros-humble-rviz2
 ```
 
+### 安装 CycloneDDS（可选，实机推荐）
+
+```bash
+sudo apt install ros-humble-rmw-cyclonedds-cpp
+```
+
 ### 安装 MuJoCo 仿真环境（可选）
 
 ```bash
 conda create -n mujoco_sim python=3.10 -y
 conda activate mujoco_sim
 pip install mujoco numpy
+```
+
+## 通信优化 (QoS & DDS)
+
+### QoS 策略
+
+控制指令和传感器数据是时效性极强的数据，采用"宁可丢包，绝不延迟"的 QoS 策略：
+
+| Topic | QoS | Reliability | Depth | Durability | 说明 |
+|-------|-----|-------------|-------|------------|------|
+| `/mujoco/joint_cmd` | 极速模式 | BEST_EFFORT | 1 | VOLATILE | 关节指令 (C++ → MuJoCo/电机) |
+| `/mujoco/joint_state` | 极速模式 | BEST_EFFORT | 1 | VOLATILE | 关节状态 (MuJoCo/电机 → C++) |
+| `/fast_livo2/state6` | 极速模式 | BEST_EFFORT | 1 | VOLATILE | IMU/姿态数据 (LIVO2 → C++) |
+| `/joint_states` | 标准模式 | RELIABLE | 10 | VOLATILE | RViz 可视化 (延迟不敏感) |
+
+**为什么不用默认 RELIABLE？**
+- RELIABLE 使用类似 TCP 的握手确认和重传机制，网络抖动时会导致延迟积累
+- BEST_EFFORT 类似 UDP，直接发送不等待确认，适合高频实时控制
+- History Depth=1 确保队列中永远只保留最新一帧，旧数据直接丢弃
+
+### CycloneDDS + 共享内存 (SHM)
+
+默认的 FastRTPS 在进程间通信时仍走本地回环网络栈，存在微秒到毫秒级的序列化开销。当 C++ 和 Python 节点运行在同一台主机上时，可切换到 CycloneDDS 并开启共享内存（零拷贝），延迟可逼近微秒级。
+
+```bash
+# 在运行任何 ROS 2 节点之前 source 此脚本
+cd ~/humble/Quadruped/HIMLoco/deploy_cpp
+source config/setup_cyclonedds.sh
+
+#终端2  Iceoryx 要求系统中必须有一个后台守护进程（Daemon）在运行，这个进程的名字就叫 RouDi（Routing and Discovery）
+source /opt/ros/humble/setup.bash
+iox-roudi
+
+
+# 验证 DDS 已切换
+ros2 doctor --report | grep middleware
+# 应显示: rmw_cyclonedds_cpp
+
+# 验证 SHM 生效（启动节点后）
+ls /dev/shm/ | grep iox
+```
+
+如需恢复默认 FastRTPS：
+```bash
+unset RMW_IMPLEMENTATION CYCLONEDDS_URI
 ```
 
 ## 构建

@@ -12,10 +12,15 @@
 
 namespace deploy {
 
-IMUSubscriber::IMUSubscriber(const std::string &topic, int qos_depth)
+IMUSubscriber::IMUSubscriber(const std::string &topic)
     : Node("imu_subscriber") {
+  // Low-latency QoS for real-time sensor data: BEST_EFFORT, depth=1, VOLATILE
+  rclcpp::QoS qos(rclcpp::KeepLast(1));
+  qos.best_effort();
+  qos.durability_volatile();
+
   sub_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-      topic, qos_depth,
+      topic, qos,
       std::bind(&IMUSubscriber::state_callback, this, std::placeholders::_1));
 
   RCLCPP_INFO(this->get_logger(), "Subscribing to state topic: %s",

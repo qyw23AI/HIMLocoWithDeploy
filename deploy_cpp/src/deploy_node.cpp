@@ -131,13 +131,18 @@ public:
     dof_pos_ = DEFAULT_DOF_POS;
     dof_vel_.fill(0.0f);
 
+    // Low-latency QoS for real-time control: BEST_EFFORT, depth=1, VOLATILE
+    rclcpp::QoS qos(rclcpp::KeepLast(1));
+    qos.best_effort();
+    qos.durability_volatile();
+
     // Publisher: send target joint positions to MuJoCo sim
     pub_ = node->create_publisher<std_msgs::msg::Float32MultiArray>(
-        "/mujoco/joint_cmd", 10);
+        "/mujoco/joint_cmd", qos);
 
     // Subscriber: receive joint states from MuJoCo sim
     sub_ = node->create_subscription<std_msgs::msg::Float32MultiArray>(
-        "/mujoco/joint_state", 10,
+        "/mujoco/joint_state", qos,
         [this](const std_msgs::msg::Float32MultiArray::SharedPtr msg) {
           if (msg->data.size() >= NUM_JOINTS * 2) {
             for (int i = 0; i < NUM_JOINTS; ++i) {
@@ -219,7 +224,7 @@ public:
     this->declare_parameter<bool>("debug_no_motor", false);
     this->declare_parameter<bool>("sim_mode", false);
     this->declare_parameter<bool>("sim_pingpong_mode", false);
-    this->declare_parameter<std::string>("imu_topic", "/fast_livo2/state6");
+    this->declare_parameter<std::string>("imu_topic", "/fast_livo2/state6_imu_prop");
   }
 
   void initialize() {
