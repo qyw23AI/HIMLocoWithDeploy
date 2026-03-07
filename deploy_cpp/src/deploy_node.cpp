@@ -144,6 +144,7 @@ public:
               dof_pos_[i] = msg->data[i];
               dof_vel_[i] = msg->data[NUM_JOINTS + i];
             }
+            msg_count_.fetch_add(1, std::memory_order_relaxed);
           }
         });
 
@@ -190,12 +191,15 @@ public:
 
   bool check_errors() const { return false; }
 
+  uint64_t msg_count() const { return msg_count_.load(std::memory_order_relaxed); }
+
   const std::array<float, NUM_JOINTS> &dof_pos() const { return dof_pos_; }
   const std::array<float, NUM_JOINTS> &dof_vel() const { return dof_vel_; }
 
 private:
   std::array<float, NUM_JOINTS> dof_pos_;
   std::array<float, NUM_JOINTS> dof_vel_;
+  std::atomic<uint64_t> msg_count_{0};
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_;
 };
@@ -214,6 +218,7 @@ public:
     this->declare_parameter<std::string>("port1", "/dev/ttyUSB1");
     this->declare_parameter<bool>("debug_no_motor", false);
     this->declare_parameter<bool>("sim_mode", false);
+    this->declare_parameter<bool>("sim_pingpong_mode", false);
     this->declare_parameter<std::string>("imu_topic", "/fast_livo2/state6");
   }
 
@@ -224,6 +229,7 @@ public:
     auto port1 = this->get_parameter("port1").as_string();
     debug_no_motor_ = this->get_parameter("debug_no_motor").as_bool();
     sim_mode_ = this->get_parameter("sim_mode").as_bool();
+    sim_pingpong_mode_ = this->get_parameter("sim_pingpong_mode").as_bool();
     auto imu_topic = this->get_parameter("imu_topic").as_string();
 
     std::cout << BANNER << std::endl;
@@ -237,6 +243,10 @@ public:
       mujoco_motor_ = std::make_unique<MujocoMotorDriver>(this);
       RCLCPP_INFO(this->get_logger(),
                   "SIM: Using MuJoCo motor driver (ROS2 topics)");
+      if (sim_pingpong_mode_) {
+        RCLCPP_INFO(this->get_logger(),
+                    "SIM ping-pong mode enabled: state-triggered control (no wall-clock control sleep)");
+      }
     } else if (!debug_no_motor_) {
       motor_ = std::make_unique<MotorDriver>(port0, port1);
       RCLCPP_INFO(this->get_logger(), "Motor driver initialized");
@@ -267,13 +277,31 @@ public:
   void run() {
     rclcpp::Rate rate(1.0 / CONTROL_DT); // 50 Hz
     uint64_t loop_count = 0;
+    uint64_t last_joint_msg_count = 0;
+    uint64_t last_imu_msg_count = 0;
     auto last_print_time = std::chrono::steady_clock::now();
 
     while (rclcpp::ok() && !keyboard_->is_exit()) {
-      // 1. Spin IMU subscriber + sim_mode self spin
-      rclcpp::spin_some(imu_);
-      if (sim_mode_) {
-        rclcpp::spin_some(this->shared_from_this());
+      // 1. Spin / wait for fresh state
+      if (sim_mode_ && sim_pingpong_mode_ && mujoco_motor_) {
+        while (rclcpp::ok() && !keyboard_->is_exit()) {
+          rclcpp::spin_some(imu_);
+          rclcpp::spin_some(this->shared_from_this());
+
+          const uint64_t joint_count = mujoco_motor_->msg_count();
+          const uint64_t imu_count = imu_->msg_count();
+          if (joint_count > last_joint_msg_count && imu_count > last_imu_msg_count) {
+            last_joint_msg_count = joint_count;
+            last_imu_msg_count = imu_count;
+            break;
+          }
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+      } else {
+        rclcpp::spin_some(imu_);
+        if (sim_mode_) {
+          rclcpp::spin_some(this->shared_from_this());
+        }
       }
 
       // 2. Handle keyboard state transitions
@@ -319,7 +347,9 @@ public:
         last_print_time = now;
       }
 
-      rate.sleep();
+      if (!(sim_mode_ && sim_pingpong_mode_)) {
+        rate.sleep();
+      }
     }
 
     shutdown();
@@ -409,14 +439,13 @@ private:
     std::array<float, NUM_ACTIONS> actions;
     policy_->step(commands, ang_vel, projected_gravity, dof_pos, dof_vel,
                   target_dof_pos, actions);
-    //test
-//     target_dof_pos = {
-//     -0.39f, 0.77f, -1.50f,  
-//     0.1f, 0.75f, -1.81f,  
-//     0.1f, 0.93f, -1.54f,  
-//     0.1f, 0.71f, -0.98f   
-// };
-
+    // test
+    //     target_dof_pos = {
+    //     -0.39f, 0.77f, -1.50f,
+    //     0.1f, 0.75f, -1.81f,
+    //     0.1f, 0.93f, -1.54f,
+    //     0.1f, 0.71f, -0.98f
+    // };
 
     // Send to motors
     if (motor_) {
@@ -448,9 +477,8 @@ private:
 
     // Build target: standup pose + offset on selected joint only
     std::array<float, NUM_JOINTS> target = STANDUP_TARGET_POS;
-    target[idx] = std::clamp(
-        STANDUP_TARGET_POS[idx] + offset,
-        JOINT_POS_LOWER[idx], JOINT_POS_UPPER[idx]);
+    target[idx] = std::clamp(STANDUP_TARGET_POS[idx] + offset,
+                             JOINT_POS_LOWER[idx], JOINT_POS_UPPER[idx]);
 
     // Print status (throttled to ~2 Hz to avoid flood)
     static auto last_print = std::chrono::steady_clock::now();
@@ -464,9 +492,9 @@ private:
                 << "  reversed=" << (MOTOR_MAP[idx].is_reversed ? "YES" : "NO")
                 << std::endl;
       std::cout << "  STANDUP_POS = " << std::fixed << std::setprecision(3)
-                << STANDUP_TARGET_POS[idx]
-                << "  offset = " << std::showpos << offset << std::noshowpos
-                << "  target = " << target[idx] << std::endl;
+                << STANDUP_TARGET_POS[idx] << "  offset = " << std::showpos
+                << offset << std::noshowpos << "  target = " << target[idx]
+                << std::endl;
       const auto &cur_pos = get_dof_pos();
       const auto &cur_vel = get_dof_vel();
       std::cout << "  Current pos = " << cur_pos[idx]
@@ -477,8 +505,9 @@ private:
 
     // Check Enter confirmation
     if (keyboard_->consume_step_confirm()) {
-      std::cout << "\n\033[1;32m>>> SENDING\033[0m target[" << idx << "] = "
-                << target[idx] << " to " << JOINT_NAMES[idx] << std::endl;
+      std::cout << "\n\033[1;32m>>> SENDING\033[0m target[" << idx
+                << "] = " << target[idx] << " to " << JOINT_NAMES[idx]
+                << std::endl;
       send_to_motors(target, KP_MOTOR, KD_MOTOR);
       sweep_last_sent_ = target;
       sweep_has_sent_ = true;
@@ -503,8 +532,8 @@ private:
 
       // Check for Enter confirmation
       if (keyboard_->consume_step_confirm()) {
-        std::cout << "\n\033[1;32m>>> EXECUTING step "
-                  << single_step_count_ << "\033[0m" << std::endl;
+        std::cout << "\n\033[1;32m>>> EXECUTING step " << single_step_count_
+                  << "\033[0m" << std::endl;
         send_to_motors(pending_target_, KP_MOTOR, KD_MOTOR);
         last_safe_target_ = pending_target_;
         single_step_pending_ = false;
@@ -528,50 +557,38 @@ private:
 
     // ---- Print complete parameter table ----
     std::cout << "\n\033[1;33m"
-              << "============ SINGLE STEP RL [step "
-              << single_step_count_ << "] ============\033[0m" << std::endl;
+              << "============ SINGLE STEP RL [step " << single_step_count_
+              << "] ============\033[0m" << std::endl;
     std::cout << "Commands: vx=" << std::fixed << std::setprecision(2)
               << commands[0] << "  vy=" << commands[1]
               << "  yaw=" << commands[2] << std::endl;
-    std::cout << "IMU: ang_vel=["
-              << std::setprecision(3)
-              << ang_vel[0] << ", " << ang_vel[1] << ", " << ang_vel[2]
-              << "]  proj_grav=["
+    std::cout << "IMU: ang_vel=[" << std::setprecision(3) << ang_vel[0] << ", "
+              << ang_vel[1] << ", " << ang_vel[2] << "]  proj_grav=["
               << projected_gravity[0] << ", " << projected_gravity[1] << ", "
               << projected_gravity[2] << "]" << std::endl;
     std::cout << std::endl;
 
     // Table header
-    std::cout << std::left
-              << std::setw(20) << "Joint"
-              << std::right
-              << std::setw(10) << "dof_pos"
-              << std::setw(10) << "dof_vel"
-              << std::setw(10) << "action"
-              << std::setw(10) << "target"
-              << std::setw(10) << "reversed"
-              << std::setw(10) << "motor_id"
+    std::cout << std::left << std::setw(20) << "Joint" << std::right
+              << std::setw(10) << "dof_pos" << std::setw(10) << "dof_vel"
+              << std::setw(10) << "action" << std::setw(10) << "target"
+              << std::setw(10) << "reversed" << std::setw(10) << "motor_id"
               << std::endl;
     std::cout << std::string(80, '-') << std::endl;
 
     for (int i = 0; i < NUM_JOINTS; ++i) {
-      std::cout << std::left << std::setw(20) << JOINT_NAMES[i]
-                << std::right << std::fixed << std::setprecision(3)
-                << std::setw(10) << dof_pos[i]
-                << std::setw(10) << dof_vel[i]
-                << std::setw(10) << actions[i]
-                << std::setw(10) << target_dof_pos[i]
-                << std::setw(10)
-                << (MOTOR_MAP[i].is_reversed ? "YES" : "NO")
-                << std::setw(10) << MOTOR_MAP[i].motor_id
-                << std::endl;
+      std::cout << std::left << std::setw(20) << JOINT_NAMES[i] << std::right
+                << std::fixed << std::setprecision(3) << std::setw(10)
+                << dof_pos[i] << std::setw(10) << dof_vel[i] << std::setw(10)
+                << actions[i] << std::setw(10) << target_dof_pos[i]
+                << std::setw(10) << (MOTOR_MAP[i].is_reversed ? "YES" : "NO")
+                << std::setw(10) << MOTOR_MAP[i].motor_id << std::endl;
     }
 
     std::cout << std::string(80, '-') << std::endl;
     std::cout << "PD gains: kp_motor=" << std::setprecision(4) << KP_MOTOR
-              << "  kd_motor=" << KD_MOTOR
-              << "  (joint: kp=" << KP_JOINT << " kd=" << KD_JOINT << ")"
-              << std::endl;
+              << "  kd_motor=" << KD_MOTOR << "  (joint: kp=" << KP_JOINT
+              << " kd=" << KD_JOINT << ")" << std::endl;
     std::cout << "\n\033[1;33mPress ENTER to execute, Space to STOP\033[0m"
               << std::endl;
 
@@ -587,8 +604,8 @@ private:
   //  Motor send helper (abstracts real/fake/mujoco)                    //
   // ------------------------------------------------------------------ //
 
-  void send_to_motors(const std::array<float, NUM_JOINTS> &target,
-                      float kp, float kd) {
+  void send_to_motors(const std::array<float, NUM_JOINTS> &target, float kp,
+                      float kd) {
     if (motor_) {
       motor_->send_commands(target, kp, kd);
     } else if (mujoco_motor_) {
@@ -670,6 +687,7 @@ private:
 
   bool debug_no_motor_ = false;
   bool sim_mode_ = false;
+  bool sim_pingpong_mode_ = false;
 
   std::shared_ptr<IMUSubscriber> imu_;
   std::unique_ptr<MotorDriver> motor_;

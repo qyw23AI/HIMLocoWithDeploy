@@ -113,14 +113,14 @@ constexpr float KD_DAMP_MOTOR = 0.1f;
 constexpr float LIN_VEL_SCALE = 2.0f;
 constexpr float ANG_VEL_SCALE = 0.25f;
 constexpr float DOF_POS_SCALE = 1.0f;
-constexpr float DOF_VEL_SCALE = 0.05f;
+constexpr float DOF_VEL_SCALE = 0.08f;
 
 // Command scaling: [lin_vel_x, lin_vel_y, ang_vel_yaw]
 constexpr std::array<float, 3> COMMANDS_SCALE = {LIN_VEL_SCALE, LIN_VEL_SCALE,
                                                  ANG_VEL_SCALE};
 
 // Policy action parameters (from mybot_config.py control class)
-constexpr float ACTION_SCALE = 0.25f;
+constexpr float ACTION_SCALE = 0.15f;
 constexpr float HIP_REDUCTION = 1.0f;
 constexpr std::array<int, 4> HIP_INDICES = {0, 3, 6, 9};
 
@@ -134,7 +134,7 @@ constexpr float CLIP_OBS = 100.0f;
 constexpr float CLIP_ACTIONS = 100.0f;
 
 // Velocity command deadband
-constexpr float CMD_DEADBAND = 0.2f;
+constexpr float CMD_DEADBAND = 0.1f;
 
 // ========================== Control Loop ==========================
 constexpr float CONTROL_DT = 0.02f; // 50 Hz policy frequency

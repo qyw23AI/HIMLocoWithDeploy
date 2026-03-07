@@ -171,7 +171,7 @@ C++ deploy_node 通过 ROS2 话题 `/mujoco/joint_cmd` 和 `/mujoco/joint_state`
 cd ~/humble/Quadruped/HIMLoco/deploy_cpp
 conda activate mujoco_sim
 source /opt/ros/humble/setup.bash
-python3 sim/mujoco_sim_node.py
+python3 sim/mujoco_sim_node.py -p pingpong_mode:=true 
 
 # 终端 2 — 启动控制节点（注意：必须用 ros2 run，不能用 launch，否则键盘无响应）
 source /opt/ros/humble/setup.bash
@@ -180,6 +180,7 @@ ros2 run deploy_cpp deploy_node --ros-args \
   -p sim_mode:=true \
   -p policy_path:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/policy/policy.pt \
   -p device:=cuda:0
+  -p pingpong_mode:=true  
 
 # 终端 3 — robot_state_publisher（可选，用于 RViz）：
 source /opt/ros/humble/setup.bash

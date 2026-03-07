@@ -43,6 +43,8 @@ def generate_launch_description():
             description='Path to policy.pt'),
         DeclareLaunchArgument('device', default_value='cuda:0',
                               description='Torch device'),
+        DeclareLaunchArgument('sim_pingpong_mode', default_value='false',
+                              description='Enable state-triggered ping-pong control timing in deploy_node'),
 
         # Deploy node in simulation mode
         Node(
@@ -52,6 +54,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'sim_mode': True,
+                'sim_pingpong_mode': LaunchConfiguration('sim_pingpong_mode'),
                 'debug_no_motor': False,
                 'policy_path': LaunchConfiguration('policy_path'),
                 'device': LaunchConfiguration('device'),

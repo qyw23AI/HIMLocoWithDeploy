@@ -72,6 +72,11 @@ class MujocoSimNode(Node):
     def __init__(self, xml_path: str):
         super().__init__('mujoco_sim_node')
 
+        # Optional pure-simulation ping-pong mode:
+        # publish state -> wait for /mujoco/joint_cmd -> step physics
+        self.declare_parameter('pingpong_mode', False)
+        self.pingpong_mode = bool(self.get_parameter('pingpong_mode').value)
+
         # ---- Load MuJoCo model ----
         self.get_logger().info(f'Loading MuJoCo model: {xml_path}')
         self.model = mujoco.MjModel.from_xml_path(xml_path)
@@ -124,6 +129,7 @@ class MujocoSimNode(Node):
         self.target_kp = KP_JOINT
         self.target_kd = KD_JOINT
         self.cmd_lock = threading.Lock()
+        self.cmd_event = threading.Event()
 
         # ---- ROS2 Publishers ----
         qos = QoSProfile(depth=10)
@@ -154,6 +160,7 @@ class MujocoSimNode(Node):
                 if len(msg.data) >= NUM_JOINTS + 2:
                     self.target_kp = msg.data[NUM_JOINTS]
                     self.target_kd = msg.data[NUM_JOINTS + 1]
+            self.cmd_event.set()
 
     def get_joint_pos(self) -> np.ndarray:
         """Get current joint positions [rad]."""
@@ -248,41 +255,62 @@ class MujocoSimNode(Node):
         """Main simulation loop with MuJoCo viewer."""
         self.get_logger().info('Starting MuJoCo simulation with viewer...')
         self.get_logger().info('Waiting for /mujoco/joint_cmd from deploy_node...')
+        if self.pingpong_mode:
+            self.get_logger().info(
+                'Ping-pong mode enabled: publish state -> wait cmd -> step physics (no wall-clock rate control).')
 
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
             step_count = 0
             while viewer.is_running() and rclpy.ok():
-                loop_start = time.time()
+                if self.pingpong_mode:
+                    # Process callbacks and publish latest state snapshot.
+                    rclpy.spin_once(self, timeout_sec=0)
+                    self.publish_state()
+                    viewer.sync()
 
-                # Process ROS2 callbacks
-                rclpy.spin_once(self, timeout_sec=0)
+                    # Wait until controller sends next command.
+                    while viewer.is_running() and rclpy.ok():
+                        if self.cmd_event.wait(timeout=0.001):
+                            break
+                        rclpy.spin_once(self, timeout_sec=0)
 
-                # Step simulation
-                self.step_sim()
+                    if not viewer.is_running() or not rclpy.ok():
+                        break
 
-                # Publish sensor data
-                self.publish_state()
+                    self.cmd_event.clear()
+                    self.step_sim()
+                else:
+                    loop_start = time.time()
 
-                # Update viewer
-                viewer.sync()
+                    # Process ROS2 callbacks
+                    rclpy.spin_once(self, timeout_sec=0)
+
+                    # Step simulation
+                    self.step_sim()
+
+                    # Publish sensor data
+                    self.publish_state()
+
+                    # Update viewer
+                    viewer.sync()
+
+                    # Rate control
+                    elapsed = time.time() - loop_start
+                    sleep_time = CONTROL_DT - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
 
                 # Print status periodically
                 step_count += 1
-                if step_count % 50 == 0:  # Every 1 second
+                if step_count % 50 == 0:  # Every 50 simulation control steps
                     pos = self.get_joint_pos()
                     self.get_logger().info(
                         f'Step {step_count}: FR_hip={pos[0]:.3f} '
                         f'FR_thigh={pos[1]:.3f} FR_calf={pos[2]:.3f}'
                         f'FL_hip={pos[3]:.3f} FL_thigh={pos[4]:.3f} FL_calf={pos[5]:.3f}'
                         f'RR_hip={pos[6]:.3f} RR_thigh={pos[7]:.3f} RR_calf={pos[8]:.3f}'
-                        f'RL_hip={pos[9]:.3f} RL_thigh={pos[10]:.3f} RL_calf={pos[11]:.3f}' 
+                        f'RL_hip={pos[9]:.3f} RL_thigh={pos[10]:.3f} RL_calf={pos[11]:.3f}'
                     )
-
-                # Rate control
-                elapsed = time.time() - loop_start
-                sleep_time = CONTROL_DT - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
 
         self.get_logger().info('MuJoCo viewer closed. Shutting down.')
 
