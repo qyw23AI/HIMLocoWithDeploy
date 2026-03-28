@@ -31,12 +31,12 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('deploy_cpp')
 
     # URDF file path
-    urdf_file = os.path.join(pkg_dir, 'robot', 'mybot', 'urdf', 'mybot.urdf')
+    urdf_file = os.path.join(pkg_dir, 'robot', 'mybot_v2', 'urdf', 'mybot_v2.urdf')
     with open(urdf_file, 'r') as f:
         robot_description = f.read()
 
     # RViz config file path
-    rviz_config = os.path.join(pkg_dir, 'config', 'mybot.rviz')
+    rviz_config = os.path.join(pkg_dir, 'config', 'mybot_v2.rviz')
 
     # Default standing joint positions [rad] (from robot_config.h STANDUP_TARGET_POS)
     # FR: hip=-0.1, thigh=0.67, calf=-1.3

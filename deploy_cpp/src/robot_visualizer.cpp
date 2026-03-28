@@ -7,7 +7,9 @@
 
 namespace deploy {
 
-RobotVisualizer::RobotVisualizer(rclcpp::Node *node) {
+RobotVisualizer::RobotVisualizer(
+    rclcpp::Node *node,
+    const std::array<std::string, NUM_JOINTS> &joint_names) {
   // Create JointState publisher
   pub_ =
       node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
@@ -15,7 +17,7 @@ RobotVisualizer::RobotVisualizer(rclcpp::Node *node) {
   // Build joint name list matching URDF joint names
   joint_names_.reserve(NUM_JOINTS);
   for (int i = 0; i < NUM_JOINTS; ++i) {
-    joint_names_.emplace_back(JOINT_NAMES[i]);
+    joint_names_.emplace_back(joint_names[i]);
   }
 
   RCLCPP_INFO(node->get_logger(),

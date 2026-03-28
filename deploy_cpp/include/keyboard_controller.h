@@ -36,7 +36,6 @@
 
 #include "robot_runtime_config.h"
 #include "state_machine.h"
-#include "robot_config.h"
 
 namespace deploy {
 

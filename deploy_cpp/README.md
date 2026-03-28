@@ -10,6 +10,7 @@
 - 支持逐关节 dof_pos_scale、dof_vel_scale、action_scale
 - 支持多机器人配置切换（mybot / mybot_v2）
 - MuJoCo/URDF 模型路径由 YAML 选择，不再在代码中写死 mybot
+- **[新功能]** 手机网页端 UDP 遥控 (Web Teleop)，支持双摇杆速度控制与状态切换
 
 ## TODO
 
@@ -60,6 +61,9 @@ deploy_cpp/
 ├── robot/
 │   ├── mybot/
 │   └── mybot_v2/
+├── web_teleop/
+│   ├── app.py                      # Python Web 中转服务端
+│   └── index.html                  # 手机前端 UI (双摇杆)
 ├── policy/
 └── lib/
 ```
@@ -80,12 +84,12 @@ sudo apt install ros-humble-robot-state-publisher ros-humble-rviz2
 sudo apt install libyaml-cpp-dev
 ```
 
-MuJoCo Python 环境：
+MuJoCo Python 环境与 Web 遥控服务端：
 
 ```bash
-conda create -n mujoco_sim python=3.10 -y
-conda activate mujoco_sim
-pip install mujoco numpy pyyaml
+conda create -n himloco python=3.10 -y
+conda activate himloco
+pip install mujoco numpy pyyaml flask flask-socketio eventlet
 ```
 
 ## 配置机制（重点）
@@ -99,6 +103,7 @@ deploy_node 现在要求传入 robot_config_file；不再依赖旧的 policy_pat
 ```yaml
 num_of_dofs: 12
 joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77]
+motor_is_reversed: [false, true, true, false, false, false, true, true, true, true, false, false]
 policy_path: policy/policy.pt
 device: cuda:0
 port0: /dev/motor_front
@@ -118,6 +123,13 @@ mujoco_xml_relpath: robot/mybot/xml/mybot.xml
 - kd_motor = kd_joint / ratio[i]^2
 
 其中 ratio[i] 来自 YAML 的 joint_transmission_ratio。
+
+关节方向由 YAML 的 `motor_is_reversed[i]` 控制：
+
+- false: direction = +1
+- true: direction = -1
+
+该字段为必填，缺失会在启动时直接报错退出。
 
 当前默认约定：
 
@@ -162,7 +174,7 @@ colcon build --packages-select deploy_cpp \
 
 source install/setup.bash
 ```
-
+export LD_LIBRARY_PATH=/home/getting/miniconda3/envs/himloco/lib:$LD_LIBRARY_PATH
 ## 运行
 
 ### A. 真机（推荐 launch）
@@ -179,7 +191,7 @@ ros2 launch deploy_cpp deploy.launch.py \
 
 ```bash
 ros2 launch deploy_cpp deploy.launch.py \
-  robot_config_file:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/config/robots/mybot_v2.yaml
+  robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml
 ```
 
 ### B. 真机（直接 run）
@@ -189,44 +201,29 @@ ros2 run deploy_cpp deploy_node --ros-args \
   -p robot_config_file:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/config/robots/mybot.yaml
 ```
 
+```bash
+ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml
+```
+
+
 ### C. Debug 无电机
 
 ```bash
 ros2 run deploy_cpp deploy_node --ros-args \
-  -p robot_config_file:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/config/robots/mybot_v2.yaml \
+  -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml \
   -p debug_no_motor:=true
 ```
 
 ### D. MuJoCo 仿真（推荐）
 
-终端 1（MuJoCo 节点）：
-
-```bash
-cd ~/humble/Quadruped/HIMLoco/deploy_cpp
-conda activate mujoco_sim
-source /opt/ros/humble/setup.bash
-python3 sim/mujoco_sim_node.py \
-  --robot-config config/robots/mybot_v2.yaml
-```
-
-终端 2（控制节点 + 可视化链路）：
-
-```bash
-source /opt/ros/humble/setup.bash
-source ~/humble/Quadruped/HIMLoco/install/setup.bash
-
-ros2 launch deploy_cpp sim.launch.py \
-  robot_config_file:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/config/robots/mybot.yaml
-```
 
 切换 mybot_v2：
 
 ```bash
 python3 sim/mujoco_sim_node.py \
-  --robot-config config/robots/mybot_v2.yaml
+  --robot-config config/robots/mybot_v2_sim.yaml
 
-ros2 launch deploy_cpp sim.launch.py \
-  robot_config_file:=$(ros2 pkg prefix deploy_cpp)/share/deploy_cpp/config/robots/mybot_v2.yaml
+ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_sim.yaml -p sim_mode:=true -p debug_no_motor:=false
 ```
 
 ### E. 电机调试节点
@@ -234,6 +231,33 @@ ros2 launch deploy_cpp sim.launch.py \
 ```bash
 ros2 launch deploy_cpp motor_debug.launch.py
 ```
+
+### F. 手机网页 UDP 遥控 (Web Teleop)
+
+本系统支持通过手机浏览器虚拟双摇杆替代键盘进行控制（前提是 YAML 中已配置 `teleop_udp_enable: true`）。
+
+**步骤 1：启动 C++ 部署节点**
+```bash
+ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=config/robots/mybot_v2_real.yaml
+```
+
+**步骤 2：启动 Python Web 中转服务端**
+（确保在同一台机器的 `himloco` conda 环境中运行，并放通 5000 端口）
+```bash
+cd ~/humble/Quadruped/HIMLoco/deploy_cpp/web_teleop
+python3 app.py --udp-port 9870 --web-port 5000
+```
+
+**步骤 3：手机浏览器访问**
+将手机连接至与机载电脑/主控电脑同一局域网（Wi-Fi），在浏览器中输入：
+`http://<机载电脑IP>:5000`
+
+- **左侧摇杆**：控制前后平移 (vx) 与左右平移 (vy)
+- **右侧摇杆**：控制原地转向 (yaw)
+- **顶部按键**：切换 IDLE / STAND UP / RL MODE / DAMPING
+- **右上角 STOP**：红色急停按键，立即切入 IDLE 并速度归零
+
+*注：前端操作会自动覆盖键盘控制的速度指令。*
 
 ## launch 参数
 

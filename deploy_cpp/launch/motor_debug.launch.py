@@ -23,22 +23,25 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('deploy_cpp')
 
     # URDF file
-    urdf_file = os.path.join(pkg_dir, 'robot', 'mybot', 'urdf', 'mybot.urdf')
+    urdf_file = os.path.join(pkg_dir, 'robot', 'mybot_v2', 'urdf', 'mybot_v2.urdf')
     with open(urdf_file, 'r') as f:
         robot_description = f.read()
 
     # RViz config
-    rviz_config = os.path.join(pkg_dir, 'config', 'mybot.rviz')
+    rviz_config = os.path.join(pkg_dir, 'config', 'mybot_v2.rviz')
 
     return LaunchDescription([
-        DeclareLaunchArgument('port0', default_value='/dev/ttyUSB0',
+        DeclareLaunchArgument('port0', default_value='/dev/ttyUSB1',
                               description='Serial port for front legs'),
-        DeclareLaunchArgument('port1', default_value='/dev/ttyUSB1',
+        DeclareLaunchArgument('port1', default_value='/dev/ttyUSB0',
                               description='Serial port for rear legs'),
         DeclareLaunchArgument('rate_hz', default_value='50.0',
                               description='Read rate in Hz'),
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Launch RViz for visualization'),
+        DeclareLaunchArgument('config_file',
+                              default_value=os.path.join(pkg_dir, 'config', 'robots', 'mybot_v2_real.yaml'),
+                              description='Robot configuration YAML file'),
 
         # Motor debug node (publishes /joint_states)
         Node(
@@ -50,6 +53,7 @@ def generate_launch_description():
                 'port0': LaunchConfiguration('port0'),
                 'port1': LaunchConfiguration('port1'),
                 'rate_hz': LaunchConfiguration('rate_hz'),
+                'robot_config_file': LaunchConfiguration('config_file'),
             }],
         ),
 

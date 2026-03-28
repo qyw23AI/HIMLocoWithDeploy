@@ -8,12 +8,21 @@
 
 #include "imu_subscriber.h"
 
+#include <cmath>
 #include <iostream>
 
 namespace deploy {
 
-IMUSubscriber::IMUSubscriber(const std::string &topic)
+namespace {
+constexpr float kPi = 3.14159265358979323846f;
+}
+
+IMUSubscriber::IMUSubscriber(const std::string &topic, float yaw_correction_deg)
     : Node("imu_subscriber") {
+  const float yaw_rad = yaw_correction_deg * kPi / 180.0f;
+  yaw_cos_ = std::cos(yaw_rad);
+  yaw_sin_ = std::sin(yaw_rad);
+
   // Low-latency QoS for real-time sensor data: BEST_EFFORT, depth=1, VOLATILE
   rclcpp::QoS qos(rclcpp::KeepLast(1));
   qos.best_effort();
@@ -23,8 +32,9 @@ IMUSubscriber::IMUSubscriber(const std::string &topic)
       topic, qos,
       std::bind(&IMUSubscriber::state_callback, this, std::placeholders::_1));
 
-  RCLCPP_INFO(this->get_logger(), "Subscribing to state topic: %s",
-              topic.c_str());
+  RCLCPP_INFO(this->get_logger(),
+              "Subscribing to state topic: %s (imu_yaw_correction_deg=%.1f)",
+              topic.c_str(), yaw_correction_deg);
 }
 
 void IMUSubscriber::state_callback(
@@ -38,14 +48,20 @@ void IMUSubscriber::state_callback(
 
   std::lock_guard<std::mutex> lock(mutex_);
 
+  // Apply yaw correction on XY plane: v_robot = Rz(yaw_correction) * v_sensor.
+  const float wx = msg->data[0];
+  const float wy = msg->data[1];
+  const float gx = msg->data[3];
+  const float gy = msg->data[4];
+
   // Angular velocity [wx, wy, wz]
-  ang_vel_[0] = msg->data[0];
-  ang_vel_[1] = msg->data[1];
+  ang_vel_[0] = yaw_cos_ * wx - yaw_sin_ * wy;
+  ang_vel_[1] = yaw_sin_ * wx + yaw_cos_ * wy;
   ang_vel_[2] = msg->data[2];
 
   // Projected gravity [gx, gy, gz]
-  projected_gravity_[0] = msg->data[3];
-  projected_gravity_[1] = msg->data[4];
+  projected_gravity_[0] = yaw_cos_ * gx - yaw_sin_ * gy;
+  projected_gravity_[1] = yaw_sin_ * gx + yaw_cos_ * gy;
   projected_gravity_[2] = msg->data[5];
 
   received_.store(true);

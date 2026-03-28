@@ -1,6 +1,9 @@
 /**
  * @file motor_driver.cpp
  * @brief GO-M8010-6 motor driver implementation.
+ *
+ * 所有电机映射信息 (motor_id, port_idx, is_reversed) 来自
+ * RobotRuntimeConfig，由 YAML 配置文件加载。
  */
 
 #include "motor_driver.h"
@@ -44,12 +47,9 @@ MotorDriver::MotorDriver(const RobotRuntimeConfig &config,
   motor_temps_.fill(0.0f);
   motor_errors_.fill(0);
 
-  // Calibrate encoder offsets so initial readings = DEFAULT_DOF_POS
+  // Calibrate encoder offsets so initial readings = default_dof_pos
   calibrate_offsets();
 }
-
-MotorDriver::MotorDriver(const std::string &port0, const std::string &port1)
-    : MotorDriver(default_robot_runtime_config(), port0, port1) {}
 
 MotorDriver::~MotorDriver() {
   // Serials are cleaned up by unique_ptr
@@ -61,7 +61,7 @@ MotorDriver::~MotorDriver() {
 
 void MotorDriver::calibrate_offsets() {
   std::cout << "[MotorDriver] Calibrating encoder offsets..." << std::endl;
-  std::cout << "[MotorDriver] Assuming current pose = DEFAULT_DOF_POS"
+  std::cout << "[MotorDriver] Assuming current pose = default_dof_pos"
             << std::endl;
 
   // Read raw encoder positions by sending zero-torque commands
@@ -70,7 +70,7 @@ void MotorDriver::calibrate_offsets() {
   constexpr int NUM_READS = 3;
   for (int r = 0; r < NUM_READS; ++r) {
     for (int i = 0; i < NUM_JOINTS; ++i) {
-      const auto &mapping = MOTOR_MAP[i];
+      const auto &mapping = config_.motor_map[i];
       float direction = mapping.is_reversed ? -1.0f : 1.0f;
 
       cmd_->mode = foc_mode_;
@@ -94,14 +94,16 @@ void MotorDriver::calibrate_offsets() {
         dof_pos_[i] = config_.default_dof_pos[i];
         dof_vel_[i] = direction * data_->dq / ratio;
 
-        std::cout << "[MotorDriver] " << JOINT_NAMES[i] << ": raw_q=" << raw_q
+        std::cout << "[MotorDriver] " << config_.joint_names[i]
+                  << " (motor " << mapping.motor_id << ")"
+                  << ": raw_q=" << raw_q
                   << " offset=" << motor_offsets_[i]
-              << " -> joint=" << config_.default_dof_pos[i] << " rad"
-              << std::endl;
-      } else if (r == NUM_READS - 1) {
-        std::cout << "[MotorDriver] WARNING: " << JOINT_NAMES[i] << " (motor "
-                  << mapping.motor_id << ") did not reply, using offset=0"
+                  << " -> joint=" << config_.default_dof_pos[i] << " rad"
                   << std::endl;
+      } else if (r == NUM_READS - 1) {
+        std::cout << "[MotorDriver] WARNING: " << config_.joint_names[i]
+                  << " (motor " << mapping.motor_id
+                  << ") did not reply, using offset=0" << std::endl;
       }
     }
   }
@@ -115,7 +117,7 @@ void MotorDriver::calibrate_offsets() {
 
 void MotorDriver::send_single(int dof_idx, float q_joint, float dq_joint,
                               float kp, float kd, float tau) {
-  const auto &mapping = MOTOR_MAP[dof_idx];
+  const auto &mapping = config_.motor_map[dof_idx];
   const float ratio = config_.joint_transmission_ratio[dof_idx];
   float direction = mapping.is_reversed ? -1.0f : 1.0f;
 
@@ -154,9 +156,11 @@ void MotorDriver::send_single(int dof_idx, float q_joint, float dq_joint,
 // ------------------------------------------------------------------ //
 
 void MotorDriver::send_commands(
-    const std::array<float, NUM_JOINTS> &target_dof_pos, float kp, float kd) {
+    const std::array<float, NUM_JOINTS> &target_dof_pos,
+    const std::array<float, NUM_JOINTS> &kp,
+    const std::array<float, NUM_JOINTS> &kd) {
   for (int i = 0; i < NUM_JOINTS; ++i) {
-    send_single(i, target_dof_pos[i], 0.0f, kp, kd, 0.0f);
+    send_single(i, target_dof_pos[i], 0.0f, kp[i], kd[i], 0.0f);
   }
 }
 
@@ -176,9 +180,9 @@ bool MotorDriver::check_errors() const {
   bool has_error = false;
   for (int i = 0; i < NUM_JOINTS; ++i) {
     if (motor_errors_[i] != 0) {
-      std::cout << "[MotorDriver] ERROR on " << JOINT_NAMES[i] << " (motor "
-                << MOTOR_MAP[i].motor_id << "): code " << motor_errors_[i]
-                << std::endl;
+      std::cout << "[MotorDriver] ERROR on " << config_.joint_names[i]
+                << " (motor " << config_.motor_map[i].motor_id << "): code "
+                << motor_errors_[i] << std::endl;
       has_error = true;
     }
   }

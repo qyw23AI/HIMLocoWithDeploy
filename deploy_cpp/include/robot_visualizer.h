@@ -22,9 +22,11 @@ class RobotVisualizer {
 public:
   /**
    * @brief Construct visualizer attached to an existing ROS2 node.
-   * @param node Pointer to the owning node (used to create publisher)
+   * @param node        Pointer to the owning node (used to create publisher)
+   * @param joint_names Joint name list matching URDF (size NUM_JOINTS)
    */
-  explicit RobotVisualizer(rclcpp::Node *node);
+  explicit RobotVisualizer(rclcpp::Node *node,
+                           const std::array<std::string, NUM_JOINTS> &joint_names);
 
   /**
    * @brief Publish current joint positions as JointState message.

@@ -1,44 +1,84 @@
+# ============================================================
+#  mybot_v2 仿真配置 (mybot_v2_sim.yaml)
+# ============================================================
+#
+#  ┌────────────────────────────────────────────────────────────┐
+#  │         关节-电机映射说明 (Joint-Motor Mapping)              │
+#  ├────────────────────────────────────────────────────────────┤
+#  │                                                            │
+#  │  所有数组统一按 Policy DOF 顺序索引:                          │
+#  │    DOF  0- 2: FL (Front-Left)  hip, thigh, calf            │
+#  │    DOF  3- 5: FR (Front-Right) hip, thigh, calf            │
+#  │    DOF  6- 8: RL (Rear-Left)   hip, thigh, calf            │
+#  │    DOF  9-11: RR (Rear-Right)  hip, thigh, calf            │
+#  │                                                            │
+#  │  仿真模式下:                                                 │
+#  │    joint_mapping 可省略 (默认 identity: DOF i → motor i+1)  │
+#  │    motor_is_reversed 可省略 (默认全 false)                   │
+#  │    motor_port_idx 不使用                                     │
+#  │                                                            │
+#  └────────────────────────────────────────────────────────────┘
+#
+
 dt: 0.002
 decimation: 4
 num_of_dofs: 12
 
-fixed_kp: [80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0]
-fixed_kd: [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+fixed_kp: [60.0, 60.0, 80.0, 60.0, 60.0, 80.0, 60.0, 60.0, 80.0, 60.0, 60.0, 80.0]
+fixed_kd: [2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0]
 torque_limits: [23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5]
 
 # q_motor = q_joint * joint_transmission_ratio[i]
-# calves (2/5/8/11): base 6.33 with extra 7/3 reducer => 14.77
+# calves (DOF 2/5/8/11): base 6.33 × extra 7/3 reducer = 14.77
 joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77]
 
-# SIM/训练顺序（XML/Policy DOF）：FR, FL, RR, RL
-default_dof_pos: [-0.35, 0.99, -2.57, 0.35, 0.99, -2.57, -0.35, 0.99, -2.57, 0.35, 0.99, -2.57]
-standup_target_pos: [-0.1, 0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 0.8, -1.5]
-policy_dof_pos: [-0.1, 0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 0.8, -1.5]
+# ---- 关节角度 (全部按 Policy DOF 顺序: FL, FR, RL, RR) ----
+#                         FL_hip FL_th FL_cf  FR_hip FR_th FR_cf  RL_hip RL_th RL_cf  RR_hip RR_th  RR_cf
+default_dof_pos:       [  0.35, 0.99, -2.57, -0.35, 0.99, -2.57,  0.35, 0.99, -2.57, -0.35, 0.99, -2.57]
+# FR_hip=0.327 FR_thigh=0.980 FR_calf=-2.568FL_hip=-0.327 FL_thigh=0.980 FL_calf=-2.568
+# RR_hip=0.327 RR_thigh=0.980 RR_calf=-2.568RL_hip=-0.327 RL_thigh=0.980 RL_calf=-2.568
+standup_target_pos:    [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
+policy_dof_pos:        [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
 
 joint_pos_lower: [-0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69]
 joint_pos_upper: [0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91]
 
-joint_names: ["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint", "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint", "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint", "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"]
-joint_controller_names: ["FR_hip", "FR_thigh", "FR_calf", "FL_hip", "FL_thigh", "FL_calf", "RR_hip", "RR_thigh", "RR_calf", "RL_hip", "RL_thigh", "RL_calf"]
-# policy DOF index -> motor id
-joint_mapping: [1, 2, 3, 4, 5, 6, 10, 11, 12, 7, 8, 9]
+# ---- 关节名称 (Policy DOF 顺序: FL, FR, RL, RR) ----
+joint_names: [
+  "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+  "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+  "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+  "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"
+]
+joint_controller_names: [
+  "FL_hip", "FL_thigh", "FL_calf",
+  "FR_hip", "FR_thigh", "FR_calf",
+  "RL_hip", "RL_thigh", "RL_calf",
+  "RR_hip", "RR_thigh", "RR_calf"
+]
+
+# 仿真模式: joint_mapping 和 motor_is_reversed 均省略, 自动使用默认值
+# (identity mapping, 无反转)
+
+# Hip 关节索引 (在 Policy DOF 空间中)
+hip_indices: [0, 3, 6, 9]
 wheel_indices: []
 
 policy_path: /home/getting/humble/Quadruped/HIMLoco/deploy_cpp/policy/policy.pt
 device: cuda:0
 port0: /dev/motor_front
 port1: /dev/motor_rear
-imu_topic: /fast_livo2/state6
+imu_topic: /fast_livo2/state6_imu_prop
 robot_name: mybot_v2_sim
 urdf_relpath: robot/mybot_v2/urdf/mybot_v2.urdf
 mujoco_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_mujoco.xml
 isaac_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_isaacgym.xml
 
-kp_joint: 80.0
-kd_joint: 2.0
+kp_joint: [60.0, 60.0, 180.0, 60.0, 60.0, 180.0, 60.0, 60.0, 180.0, 60.0, 60.0, 180.0]
+kd_joint: [2.0, 2.0, 4.0, 2.0, 2.0, 4.0, 2.0, 2.0, 4.0, 2.0, 2.0, 4.0]
 kd_damp_motor: 0.1
 
-lin_vel_scale: 2.0
+lin_vel_scale: 1.0
 ang_vel_scale: 0.25
 dof_pos_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 dof_vel_scale: [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
@@ -47,3 +87,18 @@ action_scale: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
 cmd_deadband: 0.05
 control_dt: 0.02
 standup_duration: 2.0
+
+cmd_vx_min: -1.0
+cmd_vx_max: 3.0  
+cmd_vy_min: -1.0
+cmd_vy_max: 1.0
+cmd_yaw_min: -1.2
+cmd_yaw_max: 1.2
+
+cmd_vx_step: 0.3
+cmd_vy_step: 0.3
+cmd_yaw_step: 0.3
+
+# ---- UDP Teleop (手机遥控) ----
+teleop_udp_enable: true
+teleop_udp_port: 9870

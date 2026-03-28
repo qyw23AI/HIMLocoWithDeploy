@@ -20,7 +20,8 @@ namespace deploy {
 
 class IMUSubscriber : public rclcpp::Node {
 public:
-  explicit IMUSubscriber(const std::string &topic = "/fast_livo2/state6_imu_prop");
+  explicit IMUSubscriber(const std::string &topic = "/fast_livo2/state6_imu_prop",
+                         float yaw_correction_deg = 0.0f);
 
   /// Get angular velocity [wx, wy, wz] in body frame [rad/s].
   std::array<float, 3> get_ang_vel() const;
@@ -42,6 +43,8 @@ private:
   mutable std::mutex mutex_;
   std::array<float, 3> ang_vel_ = {0.0f, 0.0f, 0.0f};
   std::array<float, 3> projected_gravity_ = {0.0f, 0.0f, -1.0f};
+  float yaw_cos_ = 1.0f;
+  float yaw_sin_ = 0.0f;
 
   std::atomic<bool> received_{false};
   std::atomic<uint64_t> msg_count_{0};

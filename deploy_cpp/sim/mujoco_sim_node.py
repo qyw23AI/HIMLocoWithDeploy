@@ -3,9 +3,12 @@
 MuJoCo simulation node for Mybot quadruped robot.
 
 Bridges MuJoCo physics simulation with the C++ deploy_node via ROS2 topics:
-  - Subscribes: /mujoco/joint_cmd  (Float32MultiArray, 12 floats: target positions)
+    - Subscribes: /mujoco/joint_cmd
+            - 12 floats: target positions
+            - 14 floats: target + scalar kp/kd
+            - 36 floats: target + per-joint kp[12] + per-joint kd[12]
   - Publishes:  /mujoco/joint_state (Float32MultiArray, 24 floats: 12 pos + 12 vel)
-  - Publishes:  /fast_livo2/state6  (Float32MultiArray, 6 floats: 3 ang_vel + 3 proj_grav)
+  - Publishes:  /fast_livo2/state6_imu_prop  (Float32MultiArray, 6 floats: 3 ang_vel + 3 proj_grav)
   - Publishes:  /joint_states       (JointState, for RViz visualization)
 
 Usage:
@@ -91,6 +94,17 @@ def load_robot_config(path: str) -> dict:
     return cfg
 
 
+def parse_scalar_or_array(value, length: int, name: str) -> np.ndarray:
+    """Parse YAML scalar or length-N sequence into float32 numpy array."""
+    if isinstance(value, (int, float)):
+        return np.full(length, float(value), dtype=np.float32)
+    if isinstance(value, (list, tuple)):
+        if len(value) != length:
+            raise RuntimeError(f'{name} length must be {length}')
+        return np.array(value, dtype=np.float32)
+    raise RuntimeError(f'{name} must be scalar or length-{length} array')
+
+
 def resolve_path(pkg_dir: str, path_value: str) -> str:
     if os.path.isabs(path_value):
         return path_value
@@ -160,8 +174,8 @@ class MujocoSimNode(Node):
 
         # ---- Target positions (updated by subscriber) ----
         self.target_pos = self.default_dof_pos.copy()
-        self.target_kp = float(cfg['kp_joint'])
-        self.target_kd = float(cfg['kd_joint'])
+        self.target_kp = parse_scalar_or_array(cfg['kp_joint'], NUM_JOINTS, 'kp_joint')
+        self.target_kd = parse_scalar_or_array(cfg['kd_joint'], NUM_JOINTS, 'kd_joint')
         self.cmd_lock = threading.Lock()
         self.cmd_event = threading.Event()
 
@@ -182,7 +196,7 @@ class MujocoSimNode(Node):
             Float32MultiArray, '/mujoco/joint_state', qos_fast)
 
         self.pub_imu = self.create_publisher(
-            Float32MultiArray, '/fast_livo2/state6', qos_fast)
+            Float32MultiArray, '/fast_livo2/state6_imu_prop', qos_fast)
 
         self.pub_rviz_joint = self.create_publisher(
             JointState, '/joint_states', qos_viz)
@@ -193,17 +207,22 @@ class MujocoSimNode(Node):
 
         self.get_logger().info('MuJoCo sim node initialized.')
         self.get_logger().info(f'  Sim DT: {self.sim_dt}s, Decimation: {self.decimation}, Control DT: {self.control_dt}s')
-        self.get_logger().info(f'  PD gains: kp={self.target_kp}, kd={self.target_kd}')
+        self.get_logger().info(
+            f'  PD gains (DOF0): kp={self.target_kp[0]:.3f}, kd={self.target_kd[0]:.3f}')
 
     def cmd_callback(self, msg: Float32MultiArray):
         """Receive target joint positions from deploy_node."""
         if len(msg.data) >= NUM_JOINTS:
             with self.cmd_lock:
                 self.target_pos[:] = msg.data[:NUM_JOINTS]
-                # Optionally receive kp, kd if provided
-                if len(msg.data) >= NUM_JOINTS + 2:
-                    self.target_kp = msg.data[NUM_JOINTS]
-                    self.target_kd = msg.data[NUM_JOINTS + 1]
+                # Optional kp/kd payloads:
+                # 14 = target + scalar kp/kd, 36 = target + kp[12] + kd[12]
+                if len(msg.data) >= NUM_JOINTS * 3:
+                    self.target_kp[:] = msg.data[NUM_JOINTS:2 * NUM_JOINTS]
+                    self.target_kd[:] = msg.data[2 * NUM_JOINTS:3 * NUM_JOINTS]
+                elif len(msg.data) >= NUM_JOINTS + 2:
+                    self.target_kp.fill(msg.data[NUM_JOINTS])
+                    self.target_kd.fill(msg.data[NUM_JOINTS + 1])
             self.cmd_event.set()
 
     def get_joint_pos(self) -> np.ndarray:
@@ -255,8 +274,8 @@ class MujocoSimNode(Node):
         """Step MuJoCo simulation with PD control (per sub-step, matching IsaacGym)."""
         with self.cmd_lock:
             target = self.target_pos.copy()
-            kp = self.target_kp
-            kd = self.target_kd
+            kp = self.target_kp.copy()
+            kd = self.target_kd.copy()
 
         # Step simulation (DECIMATION sub-steps)
         # PD torque is recomputed at EVERY sub-step using latest dof_pos/dof_vel
@@ -281,7 +300,7 @@ class MujocoSimNode(Node):
         state_msg.data = pos.tolist() + vel.tolist()
         self.pub_joint_state.publish(state_msg)
 
-        # /fast_livo2/state6: 6 floats (3 ang_vel + 3 proj_grav)
+        # /fast_livo2/state6_imu_prop : 6 floats (3 ang_vel + 3 proj_grav)
         imu_msg = Float32MultiArray()
         imu_msg.data = ang_vel.tolist() + proj_grav.tolist()
         self.pub_imu.publish(imu_msg)

@@ -4,6 +4,9 @@
  *
  * Handles 12 motors across 2 serial ports, with automatic joint-side ↔
  * motor-side conversion and direction reversal.
+ *
+ * All motor mapping (motor_id, port_idx, is_reversed) and transmission
+ * ratios are read from RobotRuntimeConfig (YAML-driven).
  */
 #pragma once
 
@@ -13,7 +16,6 @@
 #include <string>
 
 #include "robot_runtime_config.h"
-#include "robot_config.h"
 
 // Forward declarations for Unitree SDK types
 struct MotorCmd;
@@ -26,14 +28,13 @@ class MotorDriver {
 public:
   /**
    * @brief Construct motor driver with two serial ports.
-   * @param port0 Device path for front legs (FR+FL), e.g. "/dev/ttyUSB0"
-   * @param port1 Device path for rear legs (RR+RL), e.g. "/dev/ttyUSB1"
+   * @param config  Robot runtime configuration (contains motor_map, etc.)
+   * @param port0   Device path for serial port 0
+   * @param port1   Device path for serial port 1
    */
   explicit MotorDriver(const RobotRuntimeConfig &config,
                        const std::string &port0,
                        const std::string &port1);
-  MotorDriver(const std::string &port0 = SERIAL_PORTS[0],
-              const std::string &port1 = SERIAL_PORTS[1]);
   ~MotorDriver();
 
   // Non-copyable
@@ -47,19 +48,20 @@ public:
   /**
    * @brief Send position commands to all 12 motors with PD control.
    * @param target_dof_pos Target joint positions [rad], size 12
-   * @param kp Motor-side position gain
-   * @param kd Motor-side velocity gain
+    * @param kp Joint-side position gains [N·m/rad], size 12
+    * @param kd Joint-side velocity gains [N·m·s/rad], size 12
    *
    * Internally updates cached joint states from motor feedback.
    */
   void send_commands(const std::array<float, NUM_JOINTS> &target_dof_pos,
-                     float kp = KP_MOTOR, float kd = KD_MOTOR);
+                const std::array<float, NUM_JOINTS> &kp,
+                const std::array<float, NUM_JOINTS> &kd);
 
   /**
    * @brief Send damping-only commands (kp=0, tau=0).
    * @param kd Motor-side damping gain
    */
-  void send_damping(float kd = KD_DAMP_MOTOR);
+  void send_damping(float kd);
 
   /**
    * @brief Emergency stop: set all gains and torques to zero.
@@ -76,7 +78,7 @@ public:
    * @brief Calibrate encoder offsets at startup.
    *
    * Reads raw encoder positions and computes offsets so that
-   * reported joint angles match DEFAULT_DOF_POS (assumed initial pose).
+   * reported joint angles match default_dof_pos (assumed initial pose).
    * Called automatically in constructor.
    */
   void calibrate_offsets();

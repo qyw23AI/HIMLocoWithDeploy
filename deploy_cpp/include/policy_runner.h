@@ -21,7 +21,6 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
-#include "robot_config.h"
 #include "robot_runtime_config.h"
 
 namespace deploy {

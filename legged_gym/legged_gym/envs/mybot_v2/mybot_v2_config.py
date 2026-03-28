@@ -40,9 +40,9 @@ class MybotV2RoughCfg( LeggedRobotCfg ):
             'RR_hip_joint': -0.1,   # [rad]
 
             'FL_thigh_joint': 0.8,     # [rad]
-            'RL_thigh_joint': 0.8,   # [rad]
+            'RL_thigh_joint': 1.0,   # [rad]
             'FR_thigh_joint': 0.8,     # [rad]
-            'RR_thigh_joint': 0.8,   # [rad]
+            'RR_thigh_joint': 1.0,   # [rad]
 
             'FL_calf_joint': -1.5,   # [rad]
             'RL_calf_joint': -1.5,    # [rad]
@@ -67,7 +67,7 @@ class MybotV2RoughCfg( LeggedRobotCfg ):
         action_scale = 0.25
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
-        hip_reduction = 1.0
+        hip_reduction = 0.5
 
     class commands( LeggedRobotCfg.commands ):
             curriculum = True
@@ -76,8 +76,8 @@ class MybotV2RoughCfg( LeggedRobotCfg ):
             resampling_time = 10. # time before command are changed[s]
             heading_command = True # if true: compute ang vel command from heading error
             class ranges( LeggedRobotCfg.commands.ranges):
-                lin_vel_x = [-1.0, 1.0] # min max [m/s]
-                lin_vel_y = [-1.0, 1.0]   # min max [m/s]
+                lin_vel_x = [-.2, .2] # min max [m/s]
+                lin_vel_y = [-.2, .2]   # min max [m/s]
                 ang_vel_yaw = [-3.14, 3.14]    # min max [rad/s]
                 heading = [-3.14, 3.14]
 
@@ -110,10 +110,10 @@ class MybotV2RoughCfg( LeggedRobotCfg ):
             foot_clearance = -0.01
             action_rate = -0.01
             smoothness = -0.01
-            feet_air_time =  0.0
-            collision = -0.0
+            feet_air_time =  1.5
+            collision = -1.0
             feet_stumble = -0.0
-            stand_still = -0.
+            stand_still = -1.
             torques = -0.0
             dof_vel = -0.0
             dof_pos_limits = -0.0
@@ -125,9 +125,9 @@ class MybotV2RoughCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 1. # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 1.
-        base_height_target = 0.38 #『CGT』从0.30·改到0.50，0.30时机器人小腿贴地 0.43
+        base_height_target = 0.42 #『CGT』从0.30·改到0.50，0.30时机器人小腿贴地 0.43，应该是body的质心
         max_contact_force = 100. # forces above this value are penalized
-        clearance_height_target = -0.20
+        clearance_height_target = 0.08
 
 class MybotV2RoughCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):

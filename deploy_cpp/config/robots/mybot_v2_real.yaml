@@ -1,3 +1,33 @@
+# ============================================================
+#  mybot_v2 实机配置 (mybot_v2_real.yaml)
+# ============================================================
+#
+#  ┌────────────────────────────────────────────────────────────┐
+#  │         关节-电机映射说明 (Joint-Motor Mapping)              │
+#  ├────────────────────────────────────────────────────────────┤
+#  │                                                            │
+#  │  所有数组统一按 Policy DOF 顺序索引:                          │
+#  │    DOF  0- 2: FL (Front-Left)  hip, thigh, calf            │
+#  │    DOF  3- 5: FR (Front-Right) hip, thigh, calf            │
+#  │    DOF  6- 8: RL (Rear-Left)   hip, thigh, calf            │
+#  │    DOF  9-11: RR (Rear-Right)  hip, thigh, calf            │
+#  │                                                            │
+#  │  实机电机物理编组 (按 CAN ID):                                │
+#  │    电机  1- 3: FR hip, thigh, calf → 串口 port0            │
+#  │    电机  4- 6: FL hip, thigh, calf → 串口 port0            │
+#  │    电机  7- 9: RL hip, thigh, calf → 串口 port1            │
+#  │    电机 10-12: RR hip, thigh, calf → 串口 port1            │
+#  │                                                            │
+#  │  joint_mapping[policy_dof] = 电机 CAN ID:                  │
+#  │    只需按 policy 顺序填写每个关节对应的电机 ID 即可            │
+#  │    motor_is_reversed 也按相同的 policy 顺序填写               │
+#  │    其余属性 (default_dof_pos 等) 全部按 policy 顺序          │
+#  │                                                            │
+#  │  motor_port_idx 可省略 (默认: CAN ID 1-6→port0, 7-12→port1)│
+#  │                                                            │
+#  └────────────────────────────────────────────────────────────┘
+#
+
 dt: 0.002
 decimation: 4
 num_of_dofs: 12
@@ -7,35 +37,68 @@ fixed_kd: [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
 torque_limits: [23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5]
 
 # q_motor = q_joint * joint_transmission_ratio[i]
-# calves (2/5/8/11): base 6.33 with extra 7/3 reducer => 14.77
+# calves (DOF 2/5/8/11): base 6.33 × extra 7/3 reducer = 14.77
 joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77]
 
-# REAL实机顺序（按电机ID物理编组）：FR, FL, RL, RR
-default_dof_pos: [-0.35, 0.99, -2.57, 0.35, 0.99, -2.57, 0.35, 0.99, -2.57, -0.35, 0.99, -2.57]
-standup_target_pos: [-0.1, 0.8, -1.5, 0.1, 0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 0.8, -1.5]
-policy_dof_pos: [-0.1, 0.8, -1.5, 0.1, 0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 0.8, -1.5]
+# ---- 关节角度 (全部按 Policy DOF 顺序: FL, FR, RL, RR) ----
+#                         FL_hip FL_th FL_cf  FR_hip FR_th FR_cf  RL_hip RL_th RL_cf  RR_hip RR_th  RR_cf
+default_dof_pos:       [  0.1,  1.27, -2.50, -0.1,  1.27, -2.50,  0.1,  1.27, -2.50, -0.1, 1.27, -2.50]
+standup_target_pos:    [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
+policy_dof_pos:        [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
 
 joint_pos_lower: [-0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69]
 joint_pos_upper: [0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91]
 
-joint_names: ["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint", "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint", "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint", "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"]
-joint_controller_names: ["FR_hip", "FR_thigh", "FR_calf", "FL_hip", "FL_thigh", "FL_calf", "RL_hip", "RL_thigh", "RL_calf", "RR_hip", "RR_thigh", "RR_calf"]
-# policy DOF index -> motor id
-joint_mapping: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+# ---- 关节名称 (Policy DOF 顺序: FL, FR, RL, RR) ----
+joint_names: [
+  "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+  "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+  "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+  "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"
+]
+joint_controller_names: [
+  "FL_hip", "FL_thigh", "FL_calf",
+  "FR_hip", "FR_thigh", "FR_calf",
+  "RL_hip", "RL_thigh", "RL_calf",
+  "RR_hip", "RR_thigh", "RR_calf"
+]
+
+# ---- Policy DOF → 电机 CAN ID 映射 (按 Policy DOF 顺序) ----
+#   DOF 0 (FL_hip)   → motor  4    DOF 1 (FL_thigh) → motor  5
+#   DOF 2 (FL_calf)  → motor  6    DOF 3 (FR_hip)   → motor  1
+#   DOF 4 (FR_thigh) → motor  2    DOF 5 (FR_calf)  → motor  3
+#   DOF 6 (RL_hip)   → motor  7    DOF 7 (RL_thigh) → motor  8
+#   DOF 8 (RL_calf)  → motor  9    DOF 9 (RR_hip)   → motor 10
+#   DOF10 (RR_thigh) → motor 11    DOF11 (RR_calf)  → motor 12
+joint_mapping: [4, 5, 6, 1, 2, 3, 7, 8, 9, 10, 11, 12]
+
+# ---- 电机方向是否反转 (按 Policy DOF 顺序) ----
+#   DOF  0: FL_hip  ❌   DOF  1: FL_thigh ❌   DOF  2: FL_calf  ✅(反转)
+#   DOF  3: FR_hip  ❌   DOF  4: FR_thigh ✅   DOF  5: FR_calf  ❌
+#   DOF  6: RL_hip  ✅   DOF  7: RL_thigh ✅   DOF  8: RL_calf  ❌
+#   DOF  9: RR_hip  ✅   DOF 10: RR_thigh ❌   DOF 11: RR_calf  ✅
+motor_is_reversed: [false, false, true, false, true, false, true, false, true, true, true, false]
+
+# motor_port_idx 已省略: 默认 CAN ID 1-6 → port0, 7-12 → port1
+
+# Hip 关节索引 (在 Policy DOF 空间中)
+hip_indices: [0, 3, 6, 9]
 wheel_indices: []
 
-policy_path: policy/policy.pt
+policy_path: /home/getting/humble/Quadruped/HIMLoco/deploy_cpp/policy/policy.pt
 device: cuda:0
-port0: /dev/motor_front
-port1: /dev/motor_rear
-imu_topic: /fast_livo2/state6
+port0: /dev/ttyUSB1
+port1: /dev/ttyUSB0
+imu_topic: /fast_livo2/state6_imu_prop 
+# Sensor-to-robot yaw correction (deg): clockwise 90 deg => -90.
+imu_yaw_correction_deg: 0.0
 robot_name: mybot_v2_real
 urdf_relpath: robot/mybot_v2/urdf/mybot_v2.urdf
 mujoco_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_mujoco.xml
 isaac_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_isaacgym.xml
 
-kp_joint: 80.0
-kd_joint: 2.0
+kp_joint: [80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0]
+kd_joint: [2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0]
 kd_damp_motor: 0.1
 
 lin_vel_scale: 2.0
@@ -47,3 +110,7 @@ action_scale: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
 cmd_deadband: 0.05
 control_dt: 0.02
 standup_duration: 2.0
+
+# ---- UDP Teleop (手机遥控) ----
+teleop_udp_enable: true
+teleop_udp_port: 9870

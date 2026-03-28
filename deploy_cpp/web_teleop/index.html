@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Quadruped Teleop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #1a1a2e;
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+    color: #e0e0e0;
+    touch-action: none;
+    user-select: none;
+  }
+
+  /* ---- Top bar ---- */
+  #top-bar {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 56px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px;
+    background: rgba(22, 22, 44, 0.92);
+    backdrop-filter: blur(6px);
+    z-index: 100;
+    padding: 0 12px;
+  }
+  .mode-btn {
+    padding: 8px 16px;
+    border: 1.5px solid rgba(255,255,255,0.18);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    color: #ccc;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-btn:active, .mode-btn.active {
+    background: #3a7bfd;
+    border-color: #3a7bfd;
+    color: #fff;
+    transform: scale(0.96);
+  }
+  #btn-estop {
+    position: fixed; top: 6px; right: 12px;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 2.5px solid #ff4444;
+    background: linear-gradient(135deg, #ff4444, #cc0000);
+    color: #fff;
+    font-size: 11px; font-weight: 900;
+    cursor: pointer;
+    z-index: 110;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 12px rgba(255,60,60,0.5);
+    transition: transform 0.1s;
+  }
+  #btn-estop:active { transform: scale(0.9); }
+
+  /* ---- Joystick zones ---- */
+  #joy-left, #joy-right {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    width: 50%;
+  }
+  #joy-left  { left: 0; }
+  #joy-right { right: 0; }
+
+  /* ---- Status bar ---- */
+  #status-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 24px;
+    background: rgba(22, 22, 44, 0.85);
+    font-size: 12px; color: #888;
+    z-index: 100;
+  }
+  #status-bar .val { color: #3a7bfd; font-weight: 600; }
+  #conn-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #888;
+    display: inline-block;
+    margin-right: 4px;
+    transition: background 0.3s;
+  }
+  #conn-dot.ok { background: #00e676; }
+
+  /* ---- Joystick label ---- */
+  .joy-label {
+    position: absolute; top: 12px;
+    width: 100%; text-align: center;
+    font-size: 11px; color: rgba(255,255,255,0.25);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top mode buttons -->
+<div id="top-bar">
+  <button class="mode-btn active" data-mode="0">IDLE</button>
+  <button class="mode-btn" data-mode="1">STAND UP</button>
+  <button class="mode-btn" data-mode="2">RL MODE</button>
+  <button class="mode-btn" data-mode="3">DAMPING</button>
+</div>
+
+<!-- E-STOP -->
+<button id="btn-estop">STOP</button>
+
+<!-- Joystick zones -->
+<div id="joy-left"><div class="joy-label">Move (vx / vy)</div></div>
+<div id="joy-right"><div class="joy-label">Turn (yaw)</div></div>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <span><span id="conn-dot"></span><span id="conn-text">Disconnected</span></span>
+  <span>vx: <span class="val" id="s-vx">0.00</span></span>
+  <span>vy: <span class="val" id="s-vy">0.00</span></span>
+  <span>yaw: <span class="val" id="s-yaw">0.00</span></span>
+  <span>mode: <span class="val" id="s-mode">0</span></span>
+</div>
+
+<!-- Dependencies from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.2/nipplejs.min.js"></script>
+
+<script>
+(function() {
+  'use strict';
+
+  // ---- State ----
+  let currentMode = 0;
+  let vxRatio = 0, vyRatio = 0, yawRatio = 0;
+  let eStop = false;
+
+  // ---- Socket.IO ----
+  const socket = io({ transports: ['websocket'] });
+  const connDot  = document.getElementById('conn-dot');
+  const connText = document.getElementById('conn-text');
+
+  socket.on('connect', () => { connDot.classList.add('ok'); connText.textContent = 'Connected'; });
+  socket.on('disconnect', () => { connDot.classList.remove('ok'); connText.textContent = 'Disconnected'; });
+
+  // ---- Mode buttons ----
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('pointerdown', () => {
+      const mode = parseInt(btn.dataset.mode);
+      currentMode = mode;
+      eStop = false;
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // ---- E-STOP ----
+  document.getElementById('btn-estop').addEventListener('pointerdown', () => {
+    eStop = true;
+    currentMode = 0;
+    vxRatio = 0; vyRatio = 0; yawRatio = 0;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-mode="0"]').classList.add('active');
+  });
+
+  // ---- Joysticks (nipplejs) ----
+  const joyOpts = {
+    zone: null,
+    mode: 'semi',
+    catchDistance: 120,
+    size: 110,
+    color: 'rgba(58, 123, 253, 0.45)',
+    fadeTime: 150,
+  };
+
+  // Left joystick: vx (up=+Y) + vy (right=+X)
+  const leftJoy = nipplejs.create(Object.assign({}, joyOpts, { zone: document.getElementById('joy-left') }));
+  leftJoy.on('move', (_, data) => {
+    const force = Math.min(data.force, 2.0) / 2.0;   // normalize to [0,1]
+    const rad = data.angle.radian;
+    // nipplejs angle: 0=right, π/2=up, π=left, 3π/2=down
+    vxRatio  =  Math.sin(rad) * force;  // up = positive vx
+    vyRatio  = -Math.cos(rad) * force;  // left = positive vy  (ROS convention)
+  });
+  leftJoy.on('end', () => { vxRatio = 0; vyRatio = 0; });
+
+  // Right joystick: yaw (left=+yaw)
+  const rightJoy = nipplejs.create(Object.assign({}, joyOpts, { zone: document.getElementById('joy-right') }));
+  rightJoy.on('move', (_, data) => {
+    const force = Math.min(data.force, 2.0) / 2.0;
+    const rad = data.angle.radian;
+    yawRatio = -Math.cos(rad) * force;  // left = positive yaw (counterclockwise)
+  });
+  rightJoy.on('end', () => { yawRatio = 0; });
+
+  // ---- 50 Hz send loop ----
+  const sVx   = document.getElementById('s-vx');
+  const sVy   = document.getElementById('s-vy');
+  const sYaw  = document.getElementById('s-yaw');
+  const sMode = document.getElementById('s-mode');
+
+  setInterval(() => {
+    const payload = {
+      mode:      currentMode,
+      vx_ratio:  parseFloat(vxRatio.toFixed(3)),
+      vy_ratio:  parseFloat(vyRatio.toFixed(3)),
+      yaw_ratio: parseFloat(yawRatio.toFixed(3)),
+      e_stop:    eStop,
+    };
+    socket.emit('teleop_cmd', payload);
+
+    // Update status display
+    sVx.textContent   = vxRatio.toFixed(2);
+    sVy.textContent   = vyRatio.toFixed(2);
+    sYaw.textContent  = yawRatio.toFixed(2);
+    sMode.textContent = currentMode;
+
+    // Auto-clear e_stop flag after sending once
+    if (eStop) eStop = false;
+  }, 20);  // 50 Hz
+
+})();
+</script>
+</body>
+</html>

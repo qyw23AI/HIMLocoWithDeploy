@@ -20,6 +20,7 @@ joint_pos_upper: [0.48, 1.44, -1.10, 0.48, 1.44, -1.10, 0.48, 1.44, -1.10, 0.48,
 joint_names: ["FR_hip_joint", "FR_thigh_joint", "FR_calf_joint", "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint", "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint", "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"]
 joint_controller_names: ["FR_hip_controller", "FR_thigh_controller", "FR_calf_controller", "FL_hip_controller", "FL_thigh_controller", "FL_calf_controller", "RR_hip_controller", "RR_thigh_controller", "RR_calf_controller", "RL_hip_controller", "RL_thigh_controller", "RL_calf_controller"]
 joint_mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+motor_is_reversed: [false, true, true, false, false, false, true, true, true, true, false, false]
 wheel_indices: []
 
 policy_path: policy/policy.pt
@@ -45,3 +46,17 @@ action_scale: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
 cmd_deadband: 0.05
 control_dt: 0.02
 standup_duration: 2.0
+# | DOF | 关节 | 电机ID | 串口 | 反向 |
+# |-----|------|--------|------|------|
+# | 0 | FR_hip | 1 | USB0 | ❌ |
+# | 1 | FR_thigh | 2 | USB0 | ✅ |
+# | 2 | FR_calf | 3 | USB0 | ✅ |
+# | 3 | FL_hip | 4 | USB0 | ❌ |
+# | 4 | FL_thigh | 5 | USB0 | ❌ |
+# | 5 | FL_calf | 6 | USB0 | ❌ |
+# | 6 | RR_hip | 10 | USB1 | ✅ |
+# | 7 | RR_thigh | 11 | USB1 | ✅ |
+# | 8 | RR_calf | 12 | USB1 | ✅ |
+# | 9 | RL_hip | 7 | USB1 | ✅ |
+# | 10 | RL_thigh | 8 | USB1 | ❌ |
+# | 11 | RL_calf | 9 | USB1 | ❌ |

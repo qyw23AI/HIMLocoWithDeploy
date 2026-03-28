@@ -47,6 +47,7 @@ set(SOURCES
     src/imu_subscriber.cpp
     src/policy_runner.cpp
     src/keyboard_controller.cpp
+    src/udp_controller.cpp
     src/state_machine.cpp
     src/robot_visualizer.cpp
     src/deploy_node.cpp

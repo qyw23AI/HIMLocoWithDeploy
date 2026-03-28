@@ -16,7 +16,6 @@
 #include <chrono>
 #include <string>
 
-#include "robot_config.h"
 #include "robot_runtime_config.h"
 
 namespace deploy {
@@ -73,7 +72,7 @@ public:
    *
    * On first call after entering STAND_UP, the current position is
    * captured as the start pose. Then linear interpolation proceeds
-   * over STANDUP_DURATION seconds.
+   * over standup_duration_ seconds.
    *
    * @param current_dof_pos Current joint positions [rad]
    * @return Interpolated target joint positions [rad]
@@ -86,8 +85,8 @@ private:
   bool is_valid_transition(RobotState from, RobotState to) const;
 
   RobotState state_ = RobotState::IDLE;
-  std::array<float, NUM_JOINTS> standup_target_pos_ = STANDUP_TARGET_POS;
-  float standup_duration_ = STANDUP_DURATION;
+  std::array<float, NUM_JOINTS> standup_target_pos_{};  // Set from config in ctor
+  float standup_duration_ = 2.0f;                        // Set from config in ctor
 
   // StandUp interpolation state
   std::chrono::steady_clock::time_point standup_start_time_;

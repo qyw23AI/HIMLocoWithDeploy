@@ -180,7 +180,7 @@ std::array<float, NUM_JOINTS> PolicyRunner::get_target_dof_pos(
   for (int i = 0; i < NUM_JOINTS; ++i) {
     float scaled = actions[i] * config_.action_scale[i];
     // Apply hip reduction
-    for (int h : HIP_INDICES) {
+    for (int h : config_.hip_indices) {
       if (i == h) {
         scaled *= config_.hip_reduction;
         break;
