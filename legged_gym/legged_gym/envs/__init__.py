@@ -36,6 +36,8 @@ from legged_gym.envs.go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO
 from legged_gym.envs.aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
 from legged_gym.envs.mybot.mybot_config import MybotRoughCfg, MybotRoughCfgPPO
 from legged_gym.envs.mybot_v2.mybot_v2_config import MybotV2RoughCfg, MybotV2RoughCfgPPO
+from legged_gym.envs.mybot_v2_1.mybot_v2_1_config import MybotV21RoughCfg, MybotV21RoughCfgPPO
+
 
 import os
 
@@ -46,3 +48,4 @@ task_registry.register( "go1", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
 task_registry.register( "aliengo", LeggedRobot, AlienGoRoughCfg(), AlienGoRoughCfgPPO() )
 task_registry.register( "mybot",LeggedRobot, MybotRoughCfg(), MybotRoughCfgPPO())
 task_registry.register( "mybot_v2",LeggedRobot, MybotV2RoughCfg(), MybotV2RoughCfgPPO())
+task_registry.register( "mybot_v2_1",LeggedRobot, MybotV21RoughCfg(), MybotV21RoughCfgPPO())

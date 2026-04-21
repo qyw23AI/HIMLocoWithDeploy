@@ -21,11 +21,11 @@
 #
 
 dt: 0.002
-decimation: 4
+decimation: 10
 num_of_dofs: 12
 
-fixed_kp: [60.0, 60.0, 80.0, 60.0, 60.0, 80.0, 60.0, 60.0, 80.0, 60.0, 60.0, 80.0]
-fixed_kd: [2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0]
+fixed_kp: [60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0]
+fixed_kd: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 torque_limits: [23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5, 23.5]
 
 # q_motor = q_joint * joint_transmission_ratio[i]
@@ -37,8 +37,8 @@ joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.
 default_dof_pos:       [  0.35, 0.99, -2.57, -0.35, 0.99, -2.57,  0.35, 0.99, -2.57, -0.35, 0.99, -2.57]
 # FR_hip=0.327 FR_thigh=0.980 FR_calf=-2.568FL_hip=-0.327 FL_thigh=0.980 FL_calf=-2.568
 # RR_hip=0.327 RR_thigh=0.980 RR_calf=-2.568RL_hip=-0.327 RL_thigh=0.980 RL_calf=-2.568
-standup_target_pos:    [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
-policy_dof_pos:        [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5 ]
+standup_target_pos:    [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  1.0,  -1.5,  -0.1,  1.0,  -1.5 ]
+policy_dof_pos:        [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  1.0,  -1.5,  -0.1,  1.0,  -1.5 ]
 
 joint_pos_lower: [-0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69]
 joint_pos_upper: [0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91, 0.8, 4.18, -0.91]
@@ -65,26 +65,27 @@ hip_indices: [0, 3, 6, 9]
 wheel_indices: []
 
 policy_path: /home/getting/humble/Quadruped/HIMLoco/deploy_cpp/policy/policy.pt
-device: cuda:0
+device: cpu
 port0: /dev/motor_front
 port1: /dev/motor_rear
 imu_topic: /fast_livo2/state6_imu_prop
-robot_name: mybot_v2_sim
-urdf_relpath: robot/mybot_v2/urdf/mybot_v2.urdf
-mujoco_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_mujoco.xml
-isaac_xml_relpath: robot/mybot_v2/xml/mybot_v2_for_isaacgym.xml
+robot_name: mybot_v2_1_sim
+urdf_relpath: robot/mybot_v2_1/urdf/mybot_v2_1.urdf
+mujoco_xml_relpath: robot/mybot_v2_1/xml/mybot_v2_1.xml
+isaac_xml_relpath: robot/mybot_v2_1/xml/mybot_v2_1.xml
 
-kp_joint: [60.0, 60.0, 180.0, 60.0, 60.0, 180.0, 60.0, 60.0, 180.0, 60.0, 60.0, 180.0]
-kd_joint: [2.0, 2.0, 4.0, 2.0, 2.0, 4.0, 2.0, 2.0, 4.0, 2.0, 2.0, 4.0]
+
+kp_joint: [60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0, 60.0]
+kd_joint: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 kd_damp_motor: 0.1
 
 lin_vel_scale: 1.0
-ang_vel_scale: 0.25
+ang_vel_scale: 0.05 # 0.5 还行
 dof_pos_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 dof_vel_scale: [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
 action_scale: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
 
-cmd_deadband: 0.05
+cmd_deadband: 0.25
 control_dt: 0.02
 standup_duration: 2.0
 

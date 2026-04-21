@@ -35,8 +35,8 @@ struct MotorMapping {
 
 struct RobotRuntimeConfig {
   int num_of_dofs = NUM_JOINTS;
-  float dt = 0.005f;
-  int decimation = 4;
+  float dt = 0.002f;
+  int decimation = 10;
 
   std::array<float, NUM_JOINTS> fixed_kp{};
   std::array<float, NUM_JOINTS> fixed_kd{};

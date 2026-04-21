@@ -173,8 +173,9 @@ colcon build --packages-select deploy_cpp \
   --cmake-args -DTorch_DIR=/opt/libtorch/share/cmake/Torch
 
 source install/setup.bash
-```
 export LD_LIBRARY_PATH=/home/getting/miniconda3/envs/himloco/lib:$LD_LIBRARY_PATH
+
+```
 ## 运行
 
 ### A. 真机（推荐 launch）
