@@ -14,6 +14,7 @@
  *   1      – StandUp (interpolate to standing)
  *   2      – RL (policy control)
  *   3      – JointDamping (passive damping)
+ *   4      – ReturnDefault (interpolate back to startup default pose)
  *   5      – SingleStepRL (single-step RL with confirm)
  *   6      – JointSweep (manual joint direction debug)
  *   Space  – Emergency stop (force Idle)

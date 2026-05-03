@@ -87,8 +87,8 @@ wheel_indices: []
 
 policy_path: /home/getting/humble/Quadruped/HIMLoco/deploy_cpp/policy/policy.pt
 device: cpu
-port0: /dev/ttyUSB1
-port1: /dev/ttyUSB0
+port0: /dev/ttyUSB0
+port1: /dev/ttyUSB1
 imu_topic: /fast_livo2/state6_imu_prop 
 # Sensor-to-robot yaw correction (deg): clockwise 90 deg => -90.
 imu_yaw_correction_deg: 0.0
@@ -125,3 +125,26 @@ cmd_yaw_step: 0.3
 # ---- UDP Teleop (手机遥控) ----
 teleop_udp_enable: true
 teleop_udp_port: 9870
+
+# ---- ROS2 Joy Teleop (遥控手柄) ----
+# Start joystick publisher with:
+#   ros2 run joy joy_node
+joy_enable: true
+joy_topic: /joy
+joy_axis_deadzone: 0.15
+joy_timeout_s: 0.5
+joy_axis_vx: 1
+joy_axis_vy: 0
+joy_axis_yaw: 2
+joy_invert_vx: false
+joy_invert_vy: false
+joy_invert_yaw: false
+joy_button_stand_up: 0        # Y
+joy_button_return_default: 1  # B
+joy_button_rl: 2              # A
+joy_button_damping: 3
+joy_button_single_step: 4
+joy_button_joint_sweep: 5
+joy_button_idle: 6
+joy_button_confirm: 7
+joy_button_emergency: 8

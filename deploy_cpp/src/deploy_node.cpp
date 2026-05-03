@@ -7,7 +7,8 @@
  *   - Motor driver (Unitree GO-M8010-6 SDK)
  *   - HIM policy inference (LibTorch JIT)
  *   - Keyboard controller (velocity commands + state switching)
- *   - State machine (Idle / StandUp / RL / JointDamping)
+ *   - Joystick controller (sensor_msgs/Joy velocity + state switching)
+ *   - State machine (Idle / StandUp / ReturnDefault / RL / JointDamping)
  *
  * Usage:
  *   ros2 run deploy_cpp deploy_node --ros-args \
@@ -19,15 +20,22 @@
  */
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <thread>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joy.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
 #include "imu_subscriber.h"
@@ -52,6 +60,7 @@ static constexpr const char *BANNER = R"(
 ║    1 : StandUp       (缓慢站起)                   ║
 ║    2 : RL            (策略控制)                   ║
 ║    3 : JointDamping  (关节阻尼缓冲)                ║
+║    4 : ReturnDefault (缓慢回启动默认姿态)            ║
 ║    5 : SingleStepRL  (单步策略调试)               ║
 ║    6 : JointSweep    (单关节方向调试)               ║
 ║                                                  ║
@@ -230,6 +239,9 @@ public:
     this->declare_parameter<bool>("debug_no_motor", false);
     this->declare_parameter<bool>("sim_mode", false);
     this->declare_parameter<bool>("sim_pingpong_mode", false);
+    this->declare_parameter<bool>("enable_rl_joint_csv", false);
+    this->declare_parameter<std::string>("rl_joint_csv_path", "");
+    this->declare_parameter<int>("rl_joint_csv_flush_interval", 50);
   }
 
   void initialize() {
@@ -243,6 +255,19 @@ public:
     debug_no_motor_ = this->get_parameter("debug_no_motor").as_bool();
     sim_mode_ = this->get_parameter("sim_mode").as_bool();
     sim_pingpong_mode_ = this->get_parameter("sim_pingpong_mode").as_bool();
+    enable_rl_joint_csv_param_ =
+        this->get_parameter("enable_rl_joint_csv").as_bool();
+    rl_joint_csv_path_ = this->get_parameter("rl_joint_csv_path").as_string();
+    const int64_t flush_interval_raw =
+        this->get_parameter("rl_joint_csv_flush_interval").as_int();
+    if (flush_interval_raw <= 0) {
+      RCLCPP_WARN(this->get_logger(),
+                  "rl_joint_csv_flush_interval=%lld is invalid, fallback to 1",
+                  static_cast<long long>(flush_interval_raw));
+      rl_joint_csv_flush_interval_ = 1;
+    } else {
+      rl_joint_csv_flush_interval_ = static_cast<int>(flush_interval_raw);
+    }
     const auto standup_target_driver =
       reorder_policy_to_driver(config_.standup_target_pos);
     last_safe_target_ = standup_target_driver;
@@ -272,6 +297,8 @@ public:
       RCLCPP_INFO(this->get_logger(), "DEBUG: Using fake motor driver");
     }
 
+    initialize_rl_joint_csv_logging();
+
     // ---- Policy runner ----
     policy_ = std::make_unique<PolicyRunner>(config_.policy_path, config_);
     RCLCPP_INFO(this->get_logger(), "Policy runner initialized");
@@ -279,6 +306,11 @@ public:
     // ---- Keyboard controller ----
     keyboard_ = std::make_unique<KeyboardController>(config_);
     RCLCPP_INFO(this->get_logger(), "Keyboard controller initialized");
+
+    // ---- ROS2 joystick teleop controller (optional) ----
+    if (config_.joy_enable) {
+      setup_joy_subscriber();
+    }
 
     // ---- UDP teleop controller (optional) ----
     if (config_.teleop_udp_enable) {
@@ -324,23 +356,34 @@ public:
         }
       } else {
         rclcpp::spin_some(imu_);
-        if (sim_mode_) {
-          rclcpp::spin_some(this->shared_from_this());
-        }
+        rclcpp::spin_some(this->shared_from_this());
       }
+
+      bool emergency_latched = false;
+
+      auto handle_pending_state_request =
+          [this, &emergency_latched](const StateRequest &pending_req) {
+            if (emergency_latched && !pending_req.emergency) {
+              return;
+            }
+            handle_state_request(pending_req);
+            if (pending_req.emergency) {
+              emergency_latched = true;
+            }
+          };
 
       // 2a. Handle UDP teleop commands (if enabled)
       if (udp_ctrl_ && udp_ctrl_->has_data()) {
         auto cmd = udp_ctrl_->get_latest();
         if (cmd.e_stop) {
           // E-STOP: force IDLE + zero velocities
-          handle_state_request({RobotState::IDLE, true});
+          handle_pending_state_request({RobotState::IDLE, true});
           udp_vx_ = 0.0f; udp_vy_ = 0.0f; udp_yaw_ = 0.0f;
         } else {
           // Mode change
           auto target = static_cast<RobotState>(cmd.mode);
           if (target != sm_->state()) {
-            handle_state_request({target, false});
+            handle_pending_state_request({target, false});
           }
           // Update velocity commands (ratio × max)
           udp_vx_  = cmd.vx  * config_.cmd_vx_max;
@@ -352,7 +395,13 @@ public:
       // 2b. Handle keyboard state transitions
       auto req = keyboard_->consume_state_request();
       if (req.has_value()) {
-        handle_state_request(req.value());
+        handle_pending_state_request(req.value());
+      }
+
+      // 2c. Handle joystick state transitions
+      auto joy_req = consume_joy_state_request();
+      if (joy_req.has_value()) {
+        handle_pending_state_request(joy_req.value());
       }
 
       // 3. Execute current state logic
@@ -368,6 +417,9 @@ public:
         break;
       case RobotState::JOINT_DAMPING:
         handle_joint_damping();
+        break;
+      case RobotState::RETURN_DEFAULT:
+        handle_return_default();
         break;
       case RobotState::JOINT_SWEEP:
         handle_joint_sweep();
@@ -424,6 +476,269 @@ private:
     return policy_vals;
   }
 
+  void setup_joy_subscriber() {
+    rclcpp::SensorDataQoS qos;
+    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>(
+        config_.joy_topic, qos,
+        [this](const sensor_msgs::msg::Joy::SharedPtr msg) {
+          handle_joy_msg(msg);
+        });
+    RCLCPP_INFO(this->get_logger(),
+                "Joystick teleop enabled: topic=%s deadzone=%.2f timeout=%.2fs",
+                config_.joy_topic.c_str(), config_.joy_axis_deadzone,
+                config_.joy_timeout_s);
+  }
+
+  float read_joy_axis(const sensor_msgs::msg::Joy &msg, int axis_idx) const {
+    if (axis_idx < 0 || static_cast<size_t>(axis_idx) >= msg.axes.size()) {
+      return 0.0f;
+    }
+    return msg.axes[axis_idx];
+  }
+
+  bool joy_button_down(const sensor_msgs::msg::Joy &msg, int button_idx) const {
+    return button_idx >= 0 &&
+           static_cast<size_t>(button_idx) < msg.buttons.size() &&
+           msg.buttons[button_idx] != 0;
+  }
+
+  bool joy_button_was_down(int button_idx) const {
+    return button_idx >= 0 &&
+           static_cast<size_t>(button_idx) < joy_prev_buttons_.size() &&
+           joy_prev_buttons_[button_idx] != 0;
+  }
+
+  float scale_joy_axis(float raw, bool invert, float min_value,
+                       float max_value) const {
+    raw = std::clamp(raw, -1.0f, 1.0f);
+    if (invert) {
+      raw = -raw;
+    }
+    if (std::fabs(raw) < config_.joy_axis_deadzone) {
+      return 0.0f;
+    }
+    return raw >= 0.0f ? raw * max_value : -raw * min_value;
+  }
+
+  void zero_joy_commands_locked() {
+    joy_cmd_.fill(0.0f);
+  }
+
+  void handle_joy_msg(const sensor_msgs::msg::Joy::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(joy_mutex_);
+
+    joy_last_msg_time_ = std::chrono::steady_clock::now();
+    joy_has_msg_ = true;
+
+    joy_cmd_[0] = scale_joy_axis(
+        read_joy_axis(*msg, config_.joy_axis_vx), config_.joy_invert_vx,
+        config_.cmd_vx_min, config_.cmd_vx_max);
+    joy_cmd_[1] = scale_joy_axis(
+        read_joy_axis(*msg, config_.joy_axis_vy), config_.joy_invert_vy,
+        config_.cmd_vy_min, config_.cmd_vy_max);
+    joy_cmd_[2] = scale_joy_axis(
+        read_joy_axis(*msg, config_.joy_axis_yaw), config_.joy_invert_yaw,
+        config_.cmd_yaw_min, config_.cmd_yaw_max);
+
+    auto rising = [this, &msg](int button_idx) {
+      return joy_button_down(*msg, button_idx) &&
+             !joy_button_was_down(button_idx);
+    };
+
+    if (joy_button_down(*msg, config_.joy_button_emergency)) {
+      joy_state_request_ = StateRequest{RobotState::IDLE, true};
+      zero_joy_commands_locked();
+      joy_prev_buttons_.assign(msg->buttons.begin(), msg->buttons.end());
+      return;
+    }
+
+    if (rising(config_.joy_button_stand_up)) {
+      joy_state_request_ = StateRequest{RobotState::STAND_UP, false};
+      zero_joy_commands_locked();
+    } else if (rising(config_.joy_button_return_default)) {
+      joy_state_request_ = StateRequest{RobotState::RETURN_DEFAULT, false};
+      zero_joy_commands_locked();
+    } else if (rising(config_.joy_button_rl)) {
+      joy_state_request_ = StateRequest{RobotState::RL, false};
+    } else if (rising(config_.joy_button_damping)) {
+      joy_state_request_ = StateRequest{RobotState::JOINT_DAMPING, false};
+      zero_joy_commands_locked();
+    } else if (rising(config_.joy_button_single_step)) {
+      joy_state_request_ = StateRequest{RobotState::SINGLE_STEP_RL, false};
+    } else if (rising(config_.joy_button_joint_sweep)) {
+      joy_state_request_ = StateRequest{RobotState::JOINT_SWEEP, false};
+    } else if (rising(config_.joy_button_idle)) {
+      joy_state_request_ = StateRequest{RobotState::IDLE, false};
+      zero_joy_commands_locked();
+    }
+
+    if (rising(config_.joy_button_confirm)) {
+      joy_step_confirmed_ = true;
+    }
+
+    joy_prev_buttons_.assign(msg->buttons.begin(), msg->buttons.end());
+  }
+
+  std::optional<StateRequest> consume_joy_state_request() {
+    std::lock_guard<std::mutex> lock(joy_mutex_);
+    auto req = joy_state_request_;
+    joy_state_request_.reset();
+    return req;
+  }
+
+  bool consume_any_step_confirm() {
+    bool confirmed = keyboard_->consume_step_confirm();
+    {
+      std::lock_guard<std::mutex> lock(joy_mutex_);
+      confirmed = joy_step_confirmed_ || confirmed;
+      joy_step_confirmed_ = false;
+    }
+    return confirmed;
+  }
+
+  std::array<float, 3> get_joy_commands() const {
+    std::lock_guard<std::mutex> lock(joy_mutex_);
+    if (!joy_has_msg_) {
+      return {0.0f, 0.0f, 0.0f};
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const float elapsed =
+        std::chrono::duration<float>(now - joy_last_msg_time_).count();
+    if (elapsed > config_.joy_timeout_s) {
+      return {0.0f, 0.0f, 0.0f};
+    }
+
+    return joy_cmd_;
+  }
+
+  std::array<float, 3> get_active_commands() const {
+    if (udp_ctrl_ && udp_ctrl_->has_data()) {
+      return {udp_vx_, udp_vy_, udp_yaw_};
+    }
+    if (joy_sub_) {
+      return get_joy_commands();
+    }
+    return keyboard_->get_commands();
+  }
+
+  void initialize_rl_joint_csv_logging() {
+    rl_joint_csv_active_ = false;
+    rl_joint_csv_rows_ = 0;
+    rl_joint_csv_time_ready_ = false;
+
+    if (!enable_rl_joint_csv_param_) {
+      return;
+    }
+    if (sim_mode_ || debug_no_motor_ || !motor_) {
+      RCLCPP_WARN(this->get_logger(),
+                  "RL joint CSV logging requires real motor mode. Logging disabled.");
+      return;
+    }
+    if (rl_joint_csv_path_.empty()) {
+      RCLCPP_WARN(this->get_logger(),
+                  "enable_rl_joint_csv=true but rl_joint_csv_path is empty. Logging disabled.");
+      return;
+    }
+
+    const std::filesystem::path csv_path(rl_joint_csv_path_);
+    std::error_code ec;
+    if (csv_path.has_parent_path() && !csv_path.parent_path().empty()) {
+      std::filesystem::create_directories(csv_path.parent_path(), ec);
+      if (ec) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Failed to create CSV directory '%s': %s. Logging disabled.",
+                    csv_path.parent_path().string().c_str(), ec.message().c_str());
+        return;
+      }
+    }
+
+    rl_joint_csv_file_.open(csv_path, std::ios::out | std::ios::trunc);
+    if (!rl_joint_csv_file_.is_open()) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Failed to open RL joint CSV '%s'. Logging disabled.",
+                  rl_joint_csv_path_.c_str());
+      return;
+    }
+
+    rl_joint_csv_file_ << "time";
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ",q_" << i;
+    }
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ",dq_" << i;
+    }
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ",tau_" << i;
+    }
+    rl_joint_csv_file_ << '\n';
+    rl_joint_csv_file_ << std::fixed << std::setprecision(6);
+
+    rl_joint_csv_active_ = true;
+    RCLCPP_INFO(this->get_logger(),
+                "RL joint CSV logging enabled: %s",
+                rl_joint_csv_path_.c_str());
+  }
+
+  void flush_rl_joint_csv() {
+    if (!rl_joint_csv_active_ || !rl_joint_csv_file_.is_open()) {
+      return;
+    }
+    rl_joint_csv_file_.flush();
+  }
+
+  void close_rl_joint_csv() {
+    if (!rl_joint_csv_file_.is_open()) {
+      rl_joint_csv_active_ = false;
+      return;
+    }
+    rl_joint_csv_file_.flush();
+    rl_joint_csv_file_.close();
+    if (rl_joint_csv_active_) {
+      RCLCPP_INFO(this->get_logger(),
+                  "RL joint CSV saved: %s (%lu rows)",
+                  rl_joint_csv_path_.c_str(),
+                  static_cast<unsigned long>(rl_joint_csv_rows_));
+    }
+    rl_joint_csv_active_ = false;
+  }
+
+  void log_rl_joint_csv_row() {
+    if (!rl_joint_csv_active_ || !motor_ || !rl_joint_csv_file_.is_open()) {
+      return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (!rl_joint_csv_time_ready_) {
+      rl_joint_csv_t0_ = now;
+      rl_joint_csv_time_ready_ = true;
+    }
+    const double time_rel =
+        std::chrono::duration<double>(now - rl_joint_csv_t0_).count();
+
+    const auto &q = motor_->dof_pos();
+    const auto &dq = motor_->dof_vel();
+    const auto &tau = motor_->dof_tau();
+
+    rl_joint_csv_file_ << time_rel;
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ',' << q[i];
+    }
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ',' << dq[i];
+    }
+    for (int i = 0; i < NUM_JOINTS; ++i) {
+      rl_joint_csv_file_ << ',' << tau[i];
+    }
+    rl_joint_csv_file_ << '\n';
+
+    ++rl_joint_csv_rows_;
+    if (rl_joint_csv_rows_ % static_cast<uint64_t>(rl_joint_csv_flush_interval_) ==
+        0U) {
+      rl_joint_csv_file_.flush();
+    }
+  }
+
   // ------------------------------------------------------------------ //
   //  State request handler                                              //
   // ------------------------------------------------------------------ //
@@ -436,12 +751,26 @@ private:
     RobotState old_state = sm_->state();
     bool accepted = sm_->request_transition(req.target, req.emergency);
 
+    if (accepted && old_state == RobotState::RL && req.target != RobotState::RL) {
+      flush_rl_joint_csv();
+    }
+
     if (accepted && old_state != req.target) {
+      if (req.target == RobotState::STAND_UP) {
+        standup_completion_announced_ = false;
+      }
+      if (req.target == RobotState::RETURN_DEFAULT) {
+        return_default_completion_announced_ = false;
+      }
       // On entering RL or SingleStepRL, reset policy history
       if (req.target == RobotState::RL ||
           req.target == RobotState::SINGLE_STEP_RL) {
         policy_->reset();
         RCLCPP_INFO(this->get_logger(), "Policy history reset");
+        if (req.target == RobotState::RL) {
+          // Restart relative CSV time at each RL segment.
+          rl_joint_csv_time_ready_ = false;
+        }
         if (req.target == RobotState::SINGLE_STEP_RL) {
           single_step_count_ = 0;
           single_step_pending_ = false;
@@ -492,12 +821,29 @@ private:
     }
 
     if (sm_->standup_complete()) {
-      static bool printed = false;
-      if (!printed) {
+      if (!standup_completion_announced_) {
         RCLCPP_INFO(this->get_logger(),
                     "Standup complete! Press 2 to enter RL mode.");
-        printed = true;
+        standup_completion_announced_ = true;
       }
+    }
+  }
+
+  void handle_return_default() {
+    const auto &cur_pos_driver = get_dof_pos();
+    auto cur_pos_policy = reorder_driver_to_policy(cur_pos_driver);
+    auto target_policy = sm_->get_return_default_target(cur_pos_policy);
+    auto target_driver = reorder_policy_to_driver(target_policy);
+
+    send_to_motors(target_driver, config_.kp_joint, config_.kd_joint);
+
+    if (sm_->return_default_complete()) {
+      if (!return_default_completion_announced_) {
+        RCLCPP_INFO(this->get_logger(),
+                    "ReturnDefault complete. Switching to IDLE zero torque.");
+        return_default_completion_announced_ = true;
+      }
+      handle_state_request({RobotState::IDLE, false});
     }
   }
 
@@ -509,9 +855,7 @@ private:
     const auto &dof_vel_driver = get_dof_vel();
     auto dof_pos_policy = reorder_driver_to_policy(dof_pos_driver);
     auto dof_vel_policy = reorder_driver_to_policy(dof_vel_driver);
-    auto commands = (udp_ctrl_ && udp_ctrl_->has_data())
-        ? std::array<float, 3>{udp_vx_, udp_vy_, udp_yaw_}
-        : keyboard_->get_commands();
+    auto commands = get_active_commands();
 
     // Run policy inference
     std::array<float, NUM_JOINTS> target_dof_pos_policy;
@@ -538,6 +882,8 @@ private:
       fake_motor_->send_commands(target_dof_pos_driver, config_.kp_joint,
                                  config_.kd_joint);
     }
+
+    log_rl_joint_csv_row();
   }
 
   void handle_joint_damping() {
@@ -594,7 +940,7 @@ private:
     }
 
     // Check Enter confirmation
-    if (keyboard_->consume_step_confirm()) {
+    if (consume_any_step_confirm()) {
       std::cout << "\n\033[1;32m>>> SENDING\033[0m target[" << idx
                 << "] = " << target_policy[idx] << " to "
                 << config_.joint_names[idx]
@@ -624,7 +970,7 @@ private:
       send_to_motors(last_safe_target_, config_.kp_joint, config_.kd_joint);
 
       // Check for Enter confirmation
-      if (keyboard_->consume_step_confirm()) {
+      if (consume_any_step_confirm()) {
         std::cout << "\n\033[1;32m>>> EXECUTING step " << single_step_count_
                   << "\033[0m" << std::endl;
         send_to_motors(pending_target_, config_.kp_joint, config_.kd_joint);
@@ -641,9 +987,7 @@ private:
     const auto &dof_vel_driver = get_dof_vel();
     auto dof_pos_policy = reorder_driver_to_policy(dof_pos_driver);
     auto dof_vel_policy = reorder_driver_to_policy(dof_vel_driver);
-    auto commands = (udp_ctrl_ && udp_ctrl_->has_data())
-        ? std::array<float, 3>{udp_vx_, udp_vy_, udp_yaw_}
-        : keyboard_->get_commands();
+    auto commands = get_active_commands();
 
     std::array<float, NUM_JOINTS> target_dof_pos_policy;
     std::array<float, NUM_ACTIONS> actions;
@@ -743,7 +1087,7 @@ private:
   // ------------------------------------------------------------------ //
 
   void print_status(uint64_t loop_count) const {
-    auto commands = keyboard_->get_commands();
+    auto commands = get_active_commands();
 
     // Get IMU data for debugging
     auto ang_vel = imu_->get_ang_vel();
@@ -781,6 +1125,8 @@ private:
       keyboard_->cleanup();
     }
 
+    close_rl_joint_csv();
+
     std::cout << std::endl << "[Deploy] Shutdown complete." << std::endl;
   }
 
@@ -791,6 +1137,8 @@ private:
   bool debug_no_motor_ = false;
   bool sim_mode_ = false;
   bool sim_pingpong_mode_ = false;
+  bool enable_rl_joint_csv_param_ = false;
+  bool rl_joint_csv_active_ = false;
   RobotRuntimeConfig config_ = default_robot_runtime_config();
   std::array<int, NUM_JOINTS> policy_to_driver_idx_{};
   std::array<int, NUM_JOINTS> driver_to_policy_idx_{};
@@ -804,11 +1152,31 @@ private:
   std::unique_ptr<UdpController> udp_ctrl_;
   std::unique_ptr<StateMachine> sm_;
   std::unique_ptr<RobotVisualizer> visualizer_;
+  rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
+
+  std::string rl_joint_csv_path_;
+  int rl_joint_csv_flush_interval_ = 50;
+  uint64_t rl_joint_csv_rows_ = 0;
+  bool rl_joint_csv_time_ready_ = false;
+  std::chrono::steady_clock::time_point rl_joint_csv_t0_{};
+  std::ofstream rl_joint_csv_file_;
+
+  bool standup_completion_announced_ = false;
+  bool return_default_completion_announced_ = false;
 
   // ---- UDP teleop velocity cache ----
   float udp_vx_ = 0.0f;
   float udp_vy_ = 0.0f;
   float udp_yaw_ = 0.0f;
+
+  // ---- ROS2 Joy teleop cache ----
+  mutable std::mutex joy_mutex_;
+  std::array<float, 3> joy_cmd_{0.0f, 0.0f, 0.0f};
+  std::vector<int32_t> joy_prev_buttons_;
+  std::optional<StateRequest> joy_state_request_;
+  bool joy_step_confirmed_ = false;
+  bool joy_has_msg_ = false;
+  std::chrono::steady_clock::time_point joy_last_msg_time_{};
 
   // ---- JointSweep state ----
   std::array<float, NUM_JOINTS> sweep_last_sent_{};

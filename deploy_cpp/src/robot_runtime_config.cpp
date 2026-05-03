@@ -375,6 +375,78 @@ RobotRuntimeConfig load_robot_runtime_config(const std::string &yaml_file) {
     cfg.teleop_udp_port = root["teleop_udp_port"].as<int>();
   }
 
+  // ---- ROS2 Joy Teleop (可选; 默认 disabled) ----
+  if (root["joy_enable"]) cfg.joy_enable = root["joy_enable"].as<bool>();
+  if (root["joy_topic"]) cfg.joy_topic = root["joy_topic"].as<std::string>();
+  if (root["joy_axis_deadzone"]) {
+    cfg.joy_axis_deadzone = root["joy_axis_deadzone"].as<float>();
+  }
+  if (root["joy_timeout_s"]) cfg.joy_timeout_s = root["joy_timeout_s"].as<float>();
+  if (root["joy_axis_vx"]) cfg.joy_axis_vx = root["joy_axis_vx"].as<int>();
+  if (root["joy_axis_vy"]) cfg.joy_axis_vy = root["joy_axis_vy"].as<int>();
+  if (root["joy_axis_yaw"]) cfg.joy_axis_yaw = root["joy_axis_yaw"].as<int>();
+  if (root["joy_invert_vx"]) cfg.joy_invert_vx = root["joy_invert_vx"].as<bool>();
+  if (root["joy_invert_vy"]) cfg.joy_invert_vy = root["joy_invert_vy"].as<bool>();
+  if (root["joy_invert_yaw"]) {
+    cfg.joy_invert_yaw = root["joy_invert_yaw"].as<bool>();
+  }
+  if (root["joy_button_stand_up"]) {
+    cfg.joy_button_stand_up = root["joy_button_stand_up"].as<int>();
+  }
+  if (root["joy_button_return_default"]) {
+    cfg.joy_button_return_default =
+        root["joy_button_return_default"].as<int>();
+  }
+  if (root["joy_button_rl"]) cfg.joy_button_rl = root["joy_button_rl"].as<int>();
+  if (root["joy_button_damping"]) {
+    cfg.joy_button_damping = root["joy_button_damping"].as<int>();
+  }
+  if (root["joy_button_single_step"]) {
+    cfg.joy_button_single_step = root["joy_button_single_step"].as<int>();
+  }
+  if (root["joy_button_joint_sweep"]) {
+    cfg.joy_button_joint_sweep = root["joy_button_joint_sweep"].as<int>();
+  }
+  if (root["joy_button_idle"]) {
+    cfg.joy_button_idle = root["joy_button_idle"].as<int>();
+  }
+  if (root["joy_button_confirm"]) {
+    cfg.joy_button_confirm = root["joy_button_confirm"].as<int>();
+  }
+  if (root["joy_button_emergency"]) {
+    cfg.joy_button_emergency = root["joy_button_emergency"].as<int>();
+  }
+
+  auto validate_index = [](int value, const std::string &key) {
+    if (value < -1) {
+      throw std::runtime_error(key + " must be >= -1, got: " +
+                               std::to_string(value));
+    }
+  };
+
+  validate_index(cfg.joy_axis_vx, "joy_axis_vx");
+  validate_index(cfg.joy_axis_vy, "joy_axis_vy");
+  validate_index(cfg.joy_axis_yaw, "joy_axis_yaw");
+  validate_index(cfg.joy_button_stand_up, "joy_button_stand_up");
+  validate_index(cfg.joy_button_return_default, "joy_button_return_default");
+  validate_index(cfg.joy_button_rl, "joy_button_rl");
+  validate_index(cfg.joy_button_damping, "joy_button_damping");
+  validate_index(cfg.joy_button_single_step, "joy_button_single_step");
+  validate_index(cfg.joy_button_joint_sweep, "joy_button_joint_sweep");
+  validate_index(cfg.joy_button_idle, "joy_button_idle");
+  validate_index(cfg.joy_button_confirm, "joy_button_confirm");
+  validate_index(cfg.joy_button_emergency, "joy_button_emergency");
+
+  if (cfg.joy_axis_deadzone < 0.0f || cfg.joy_axis_deadzone >= 1.0f) {
+    throw std::runtime_error("joy_axis_deadzone must be in [0, 1)");
+  }
+  if (cfg.joy_timeout_s <= 0.0f) {
+    throw std::runtime_error("joy_timeout_s must be positive");
+  }
+  if (cfg.joy_enable && cfg.joy_topic.empty()) {
+    throw std::runtime_error("joy_enable is true but joy_topic is empty");
+  }
+
   return cfg;
 }
 

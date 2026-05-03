@@ -22,6 +22,12 @@ def generate_launch_description():
                               description='Use MuJoCo bridge topic motor driver'),
         DeclareLaunchArgument('sim_pingpong_mode', default_value='false',
                               description='Enable state-triggered ping-pong control timing in deploy_node'),
+        DeclareLaunchArgument('enable_rl_joint_csv', default_value='false',
+                              description='Record RL joint q/dq/tau to CSV in real motor mode'),
+        DeclareLaunchArgument('rl_joint_csv_path', default_value='',
+                              description='Absolute path of RL joint CSV output file'),
+        DeclareLaunchArgument('rl_joint_csv_flush_interval', default_value='50',
+                              description='Flush CSV every N rows'),
 
         Node(
             package='deploy_cpp',
@@ -33,6 +39,9 @@ def generate_launch_description():
                 'debug_no_motor': LaunchConfiguration('debug_no_motor'),
                 'sim_mode': LaunchConfiguration('sim_mode'),
                 'sim_pingpong_mode': LaunchConfiguration('sim_pingpong_mode'),
+                'enable_rl_joint_csv': LaunchConfiguration('enable_rl_joint_csv'),
+                'rl_joint_csv_path': LaunchConfiguration('rl_joint_csv_path'),
+                'rl_joint_csv_flush_interval': LaunchConfiguration('rl_joint_csv_flush_interval'),
             }],
         ),
     ])

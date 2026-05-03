@@ -44,6 +44,7 @@ MotorDriver::MotorDriver(const RobotRuntimeConfig &config,
   motor_offsets_.fill(0.0f);
   dof_pos_ = config_.default_dof_pos; // Initialize to configured pose
   dof_vel_.fill(0.0f);
+  dof_tau_.fill(0.0f);
   motor_temps_.fill(0.0f);
   motor_errors_.fill(0);
 
@@ -93,6 +94,7 @@ void MotorDriver::calibrate_offsets() {
           raw_q - direction * config_.default_dof_pos[i] * ratio;
         dof_pos_[i] = config_.default_dof_pos[i];
         dof_vel_[i] = direction * data_->dq / ratio;
+        dof_tau_[i] = direction * data_->tau * ratio;
 
         std::cout << "[MotorDriver] " << config_.joint_names[i]
                   << " (motor " << mapping.motor_id << ")"
@@ -145,6 +147,7 @@ void MotorDriver::send_single(int dof_idx, float q_joint, float dq_joint,
   if (data_->correct && static_cast<int>(data_->motor_id) == mapping.motor_id) {
     dof_pos_[dof_idx] = direction * (data_->q - motor_offsets_[dof_idx]) / ratio;
     dof_vel_[dof_idx] = direction * data_->dq / ratio;
+    dof_tau_[dof_idx] = direction * data_->tau * ratio;
     motor_temps_[dof_idx] = static_cast<float>(data_->temp);
     motor_errors_[dof_idx] = data_->merror;
   }

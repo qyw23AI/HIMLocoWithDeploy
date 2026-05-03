@@ -126,6 +126,27 @@ struct RobotRuntimeConfig {
   bool teleop_udp_enable = false;
   int teleop_udp_port = 9870;
 
+  // ---- ROS2 Joy Teleop (手柄遥控) ----
+  bool joy_enable = false;
+  std::string joy_topic = "/joy";
+  float joy_axis_deadzone = 0.15f;
+  float joy_timeout_s = 0.5f;
+  int joy_axis_vx = 1;
+  int joy_axis_vy = 0;
+  int joy_axis_yaw = 2;
+  bool joy_invert_vx = false;
+  bool joy_invert_vy = false;
+  bool joy_invert_yaw = false;
+  int joy_button_stand_up = 0;
+  int joy_button_return_default = 1;
+  int joy_button_rl = 2;
+  int joy_button_damping = 3;
+  int joy_button_single_step = 4;
+  int joy_button_joint_sweep = 5;
+  int joy_button_idle = 6;
+  int joy_button_confirm = 7;
+  int joy_button_emergency = 8;
+
   // ---- 便捷函数 ----
   float motor_kp(int joint_idx) const {
     const float r = joint_transmission_ratio[joint_idx];

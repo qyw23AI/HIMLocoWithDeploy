@@ -7,7 +7,8 @@
  * manner.
  *
  * Binary protocol (17 bytes, packed, little-endian):
- *   int32_t  mode      0=IDLE, 1=STAND_UP, 2=RL, 3=JOINT_DAMPING
+ *   int32_t  mode      0=IDLE, 1=STAND_UP, 2=RL, 3=JOINT_DAMPING,
+ *                       4=RETURN_DEFAULT
  *   float    vx        normalized ratio [-1.0, 1.0]
  *   float    vy        normalized ratio [-1.0, 1.0]
  *   float    yaw       normalized ratio [-1.0, 1.0]
@@ -27,7 +28,7 @@ namespace deploy {
 
 #pragma pack(push, 1)
 struct UdpCommand {
-  int32_t mode   = 0;     ///< 0-3 state
+  int32_t mode   = 0;     ///< 0-4 state
   float   vx     = 0.0f;  ///< vx ratio [-1, 1]
   float   vy     = 0.0f;  ///< vy ratio [-1, 1]
   float   yaw    = 0.0f;  ///< yaw ratio [-1, 1]

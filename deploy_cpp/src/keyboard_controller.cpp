@@ -111,6 +111,10 @@ void KeyboardController::process_key(char key)
         state_request_ = StateRequest{RobotState::JOINT_DAMPING, false};
         zero_commands();
         break;
+    case '4':
+        state_request_ = StateRequest{RobotState::RETURN_DEFAULT, false};
+        zero_commands();
+        break;
 
     // ---- Debug state transitions ----
     case '5':

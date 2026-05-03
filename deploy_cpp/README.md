@@ -11,6 +11,7 @@
 - 支持多机器人配置切换（mybot / mybot_v2）
 - MuJoCo/URDF 模型路径由 YAML 选择，不再在代码中写死 mybot
 - **[新功能]** 手机网页端 UDP 遥控 (Web Teleop)，支持双摇杆速度控制与状态切换
+- **[新功能]** ROS2 Joy 手柄遥控，支持速度轴、状态按钮、回默认姿态与急停
 
 ## TODO
 
@@ -71,6 +72,7 @@ deploy_cpp/
 ## 依赖
 
 - ROS2 Humble (rclcpp, std_msgs, sensor_msgs)
+- joy（用于 `ros2 run joy joy_node` 发布 `/joy`）
 - LibTorch (PyTorch C++ API)
 - Unitree Actuator SDK
 - yaml-cpp (C++ 读取 YAML)
@@ -81,6 +83,7 @@ deploy_cpp/
 
 ```bash
 sudo apt install ros-humble-robot-state-publisher ros-humble-rviz2
+sudo apt install ros-humble-joy
 sudo apt install libyaml-cpp-dev
 ```
 
@@ -169,11 +172,12 @@ mybot_v2 默认模型字段：
 cd ~/humble/Quadruped/HIMLoco
 source /opt/ros/humble/setup.bash
 
+source install/setup.bash
+export LD_LIBRARY_PATH=/home/getting/miniconda3/envs/himloco/lib:$LD_LIBRARY_PATH
+
 colcon build --packages-select deploy_cpp \
   --cmake-args -DTorch_DIR=/opt/libtorch/share/cmake/Torch
 
-source install/setup.bash
-export LD_LIBRARY_PATH=/home/getting/miniconda3/envs/himloco/lib:$LD_LIBRARY_PATH
 
 ```
 ## 运行
@@ -205,6 +209,23 @@ ros2 run deploy_cpp deploy_node --ros-args \
 ```bash
 ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml
 ```
+
+启用实机 RL 关节 CSV 记录（time + q_0..q_11 + dq_0..dq_11 + tau_0..tau_11）：
+
+```bash
+ros2 run deploy_cpp deploy_node --ros-args \
+  -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml \
+  -p enable_rl_joint_csv:=true \
+  -p rl_joint_csv_path:=~/humble/Quadruped/HIMLoco/mybot_rl_joint_log.csv \
+  -p rl_joint_csv_flush_interval:=50
+```
+
+说明：
+
+- 仅在实机 RL 状态记录（`sim_mode=false` 且 `debug_no_motor=false`）
+- `time` 为相对时间（秒），从第一条 RL 记录开始计时
+- `q/dq/tau` 均为关节侧语义（已按 `joint_transmission_ratio` 与方向还原）
+- 关节顺序为 policy DOF 顺序：FL, FR, RL, RR
 
 
 ### C. Debug 无电机
@@ -260,6 +281,53 @@ python3 app.py --udp-port 9870 --web-port 5000
 
 *注：前端操作会自动覆盖键盘控制的速度指令。*
 
+### G. ROS2 Joy 手柄遥控
+
+YAML 中启用 `joy_enable: true` 后，deploy_node 会订阅 `sensor_msgs/msg/Joy`，可用 ROS2 官方 joy 节点发布手柄消息：
+
+```bash
+ros2 run joy joy_node
+```
+
+部署节点按正常方式启动即可：
+
+```bash
+ros2 run deploy_cpp deploy_node --ros-args \
+  -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml
+```
+
+推荐配置示例：
+
+```yaml
+# Joystick teleop via: ros2 run joy joy_node
+joy_enable: true
+joy_topic: /joy
+joy_axis_deadzone: 0.15
+joy_timeout_s: 0.5
+joy_axis_vx: 1
+joy_axis_vy: 0
+joy_axis_yaw: 2
+joy_invert_vx: false
+joy_invert_vy: false
+joy_invert_yaw: false
+joy_button_stand_up: 0 # Y
+joy_button_return_default: 1 # B
+joy_button_rl: 2 # A
+joy_button_damping: 3
+joy_button_single_step: 4
+joy_button_joint_sweep: 5
+joy_button_idle: 6
+joy_button_confirm: 7
+joy_button_emergency: 8
+```
+
+说明：
+
+- 速度轴仅在 `RL` / `SINGLE_STEP_RL` 中参与策略输入，按 `cmd_vx/vy/yaw_min/max` 缩放。
+- `joy_timeout_s` 超时后速度自动置零，避免手柄断连后沿用旧速度。
+- `joy_button_return_default` 会进入 `RETURN_DEFAULT`：按当前姿态平滑插值回 `default_dof_pos`，完成后自动切回 `IDLE` 零力矩。
+- 若 UDP Web Teleop 已收到过数据，速度指令优先使用 UDP；只用手柄时不要启动 Web Teleop，或在 YAML 中关闭 `teleop_udp_enable`。
+
 ## launch 参数
 
 ### deploy.launch.py
@@ -268,6 +336,9 @@ python3 app.py --udp-port 9870 --web-port 5000
 - debug_no_motor: true/false
 - sim_mode: true/false
 - sim_pingpong_mode: true/false
+- enable_rl_joint_csv: true/false（是否记录实机 RL 关节 CSV）
+- rl_joint_csv_path: CSV 输出文件完整路径
+- rl_joint_csv_flush_interval: 每 N 行 flush 一次（默认 50）
 
 ### sim.launch.py
 
@@ -282,6 +353,7 @@ sim.launch.py 会从 YAML 中读取 urdf_relpath 并自动启动 robot_state_pub
 - 1: STAND_UP
 - 2: RL
 - 3: JOINT_DAMPING
+- 4: RETURN_DEFAULT（回启动默认姿态，完成后自动进入 IDLE）
 - W/S: vx 增减
 - Q/E: vy 增减
 - A/D: yaw 增减
@@ -298,6 +370,7 @@ sim.launch.py 会从 YAML 中读取 urdf_relpath 并自动启动 robot_state_pub
 | /mujoco/joint_cmd | BEST_EFFORT | 1 | VOLATILE |
 | /mujoco/joint_state | BEST_EFFORT | 1 | VOLATILE |
 | /fast_livo2/state6 | BEST_EFFORT | 1 | VOLATILE |
+| /joy | BEST_EFFORT | 5 | VOLATILE |
 | /joint_states | RELIABLE | 10 | VOLATILE |
 
 ## 当前关键实现摘要
@@ -306,7 +379,9 @@ sim.launch.py 会从 YAML 中读取 urdf_relpath 并自动启动 robot_state_pub
 - 逐关节传动比换算：motor_driver.cpp
 - 逐关节观测/动作 scale：policy_runner.cpp
 - standup 时长/目标改为 YAML：state_machine.cpp
+- return_default 目标使用 YAML 的 default_dof_pos：state_machine.cpp
 - 键盘速度范围改为 YAML：keyboard_controller.cpp
+- ROS2 Joy 手柄输入：deploy_node.cpp + robot_runtime_config.cpp
 - 模型路径按 YAML 选择：sim.launch.py + sim/mujoco_sim_node.py
 
 ## 已知注意事项

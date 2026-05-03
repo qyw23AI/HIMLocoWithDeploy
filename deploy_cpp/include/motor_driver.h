@@ -88,6 +88,7 @@ public:
   // ------------------------------------------------------------------ //
   const std::array<float, NUM_JOINTS> &dof_pos() const { return dof_pos_; }
   const std::array<float, NUM_JOINTS> &dof_vel() const { return dof_vel_; }
+  const std::array<float, NUM_JOINTS> &dof_tau() const { return dof_tau_; }
   const std::array<float, NUM_JOINTS> &motor_temps() const {
     return motor_temps_;
   }
@@ -108,6 +109,7 @@ private:
   // Cached joint states
   std::array<float, NUM_JOINTS> dof_pos_{};
   std::array<float, NUM_JOINTS> dof_vel_{};
+  std::array<float, NUM_JOINTS> dof_tau_{};
   std::array<float, NUM_JOINTS> motor_temps_{};
   std::array<int, NUM_JOINTS> motor_errors_{};
   std::array<float, NUM_JOINTS> motor_offsets_{}; // encoder zero offsets
