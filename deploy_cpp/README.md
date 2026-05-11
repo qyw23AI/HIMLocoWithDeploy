@@ -180,6 +180,7 @@ colcon build --packages-select deploy_cpp \
 
 
 ```
+
 ## 运行
 
 ### A. 真机（推荐 launch）
@@ -227,25 +228,27 @@ ros2 run deploy_cpp deploy_node --ros-args \
 - `q/dq/tau` 均为关节侧语义（已按 `joint_transmission_ratio` 与方向还原）
 - 关节顺序为 policy DOF 顺序：FL, FR, RL, RR
 
-
 ### C. Debug 无电机
 
 ```bash
+# 终端2
+source /opt/ros/humble/setup.bash
+source /home/qyw/HIMLocoWithDeploy/deploy_cpp/install/setup.bash
 ros2 run deploy_cpp deploy_node --ros-args \
-  -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_real.yaml \
-  -p debug_no_motor:=true
+  -p robot_config_file:=/home/qyw/HIMLocoWithDeploy/deploy_cpp/config/robots/mybot_v3_sim.yaml \
+  -p sim_mode:=true \
+  -p debug_no_motor:=false
 ```
 
 ### D. MuJoCo 仿真（推荐）
 
-
-切换 mybot_v2：
+切换 mybot_v3：
 
 ```bash
+cd /home/qyw/HIMLocoWithDeploy/deploy_cpp
 python3 sim/mujoco_sim_node.py \
-  --robot-config config/robots/mybot_v2_sim.yaml
+  --robot-config /home/qyw/HIMLocoWithDeploy/deploy_cpp/config/robots/mybot_v3_sim.yaml
 
-ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=/home/getting/humble/Quadruped/HIMLoco/deploy_cpp/config/robots/mybot_v2_sim.yaml -p sim_mode:=true -p debug_no_motor:=false
 ```
 
 ### E. 电机调试节点
@@ -259,12 +262,14 @@ ros2 launch deploy_cpp motor_debug.launch.py
 本系统支持通过手机浏览器虚拟双摇杆替代键盘进行控制（前提是 YAML 中已配置 `teleop_udp_enable: true`）。
 
 **步骤 1：启动 C++ 部署节点**
+
 ```bash
 ros2 run deploy_cpp deploy_node --ros-args -p robot_config_file:=config/robots/mybot_v2_real.yaml
 ```
 
 **步骤 2：启动 Python Web 中转服务端**
 （确保在同一台机器的 `himloco` conda 环境中运行，并放通 5000 端口）
+
 ```bash
 cd ~/humble/Quadruped/HIMLoco/deploy_cpp/web_teleop
 python3 app.py --udp-port 9870 --web-port 5000
@@ -365,13 +370,13 @@ sim.launch.py 会从 YAML 中读取 urdf_relpath 并自动启动 robot_state_pub
 
 ## QoS
 
-| Topic | Reliability | Depth | Durability |
-|---|---|---|---|
-| /mujoco/joint_cmd | BEST_EFFORT | 1 | VOLATILE |
-| /mujoco/joint_state | BEST_EFFORT | 1 | VOLATILE |
-| /fast_livo2/state6 | BEST_EFFORT | 1 | VOLATILE |
-| /joy | BEST_EFFORT | 5 | VOLATILE |
-| /joint_states | RELIABLE | 10 | VOLATILE |
+| Topic               | Reliability | Depth | Durability |
+| ------------------- | ----------- | ----- | ---------- |
+| /mujoco/joint_cmd   | BEST_EFFORT | 1     | VOLATILE   |
+| /mujoco/joint_state | BEST_EFFORT | 1     | VOLATILE   |
+| /fast_livo2/state6  | BEST_EFFORT | 1     | VOLATILE   |
+| /joy                | BEST_EFFORT | 5     | VOLATILE   |
+| /joint_states       | RELIABLE    | 10    | VOLATILE   |
 
 ## 当前关键实现摘要
 

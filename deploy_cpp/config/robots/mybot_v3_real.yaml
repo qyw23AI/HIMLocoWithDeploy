@@ -1,0 +1,164 @@
+# mybot_v3 real runtime config (Policy DOF order: FL, FR, RL, RR)
+# 说明:
+# - 所有数组均按 Policy DOF 顺序: FL(0-2), FR(3-5), RL(6-8), RR(9-11)
+# - 角度单位 rad, 速度 rad/s, 力矩 N·m, 线速度 m/s, 角速度 rad/s
+
+# 控制主循环周期(秒): 越小控制越灵敏, 但通信/计算负担更大
+dt: 0.005
+# 低频控制/策略更新的降采样倍数: 每 decimation 个 dt 更新一次策略/控制
+decimation: 4
+# 关节自由度数量(固定为 12 关节四足)
+num_of_dofs: 12
+
+# 固定姿态/站起等非策略阶段使用的关节 P/D 增益
+fixed_kp: [40.0, 40.0, 50.0, 40.0, 40.0, 50.0, 40.0, 40.0, 50.0, 40.0, 40.0, 50.0]
+fixed_kd: [2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0]
+# 电机力矩上限(关节侧语义): 超限会被裁剪以保护电机/机械结构
+torque_limits: [33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5, 33.5]
+
+# 传动比: 关节侧与电机侧的换算
+#   q_motor = q_joint * ratio, dq_motor = dq_joint * ratio
+#   tau_motor = tau_joint / ratio
+# 小腿含额外 3:7 减速, 总比 14.77
+joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.77]
+
+# 关节初始/目标姿态(关节侧语义)
+#   default_dof_pos: 上电后默认姿态/RETURN_DEFAULT 目标
+#   standup_target_pos: STAND_UP 结束的目标姿态
+#   policy_dof_pos: 进入 RL 前的姿态偏置(策略观测基准)
+#                        FL_hip FL_th FL_cf  FR_hip FR_th FR_cf  RL_hip RL_th RL_cf  RR_hip RR_th RR_cf
+default_dof_pos:      [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
+standup_target_pos:   [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
+policy_dof_pos:       [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
+
+# 关节角度硬限位(关节侧语义): 用于保护结构与防止异常指令
+joint_pos_lower: [-0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69]
+joint_pos_upper: [ 0.8,  4.18, -0.91,  0.8,  4.18, -0.91,  0.8,  4.18, -0.91,  0.8,  4.18, -0.91]
+
+# 关节名称(与 URDF/MuJoCo 一致)
+joint_names: [
+  "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+  "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+  "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+  "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"
+]
+
+# 控制器中使用的关节名(与控制器/驱动内的关节命名一致)
+joint_controller_names: [
+  "FL_hip", "FL_thigh", "FL_calf",
+  "FR_hip", "FR_thigh", "FR_calf",
+  "RL_hip", "RL_thigh", "RL_calf",
+  "RR_hip", "RR_thigh", "RR_calf"
+]
+
+# Policy DOF -> 电机 CAN ID 映射(实机走线/ID 必须严格对应)
+# 影响: 策略输出第 i 个关节目标将发送到映射的电机 ID
+joint_mapping: [4, 5, 6, 1, 2, 3, 7, 8, 9, 10, 11, 12]
+
+# 电机方向是否反转(实机安装方向或编码器定义导致)
+# true 表示该关节正方向取反, 否则方向相反会导致站立/行走失稳
+motor_is_reversed: [false, false, true, false, true, false, true, false, true, true, true, false]
+
+# 髋关节索引(用于奖励/控制中特定关节处理)
+hip_indices: [0, 3, 6, 9]
+# 轮式机器人用, 四足为空
+wheel_indices: []
+
+# 策略模型路径(实机推理用)
+policy_path: /home/qyw/HIMLocoWithDeploy/legged_gym/logs/rough_mybot_v3/exported/policies/policy(May10_12-18).pt
+# 推理设备: cpu 或 cuda:0
+device: cpu
+# 电机控制串口: 前/后两条 CAN-USB 口
+port0: /dev/ttyUSB0
+port1: /dev/ttyUSB1
+# IMU 话题: 提供姿态/角速度用于观测与姿态校正
+imu_topic: /fast_livo2/state6_imu_prop
+# IMU 到机器人坐标系的 yaw 修正(度)
+imu_yaw_correction_deg: 0.0
+# 机器人名称: 用于日志/可视化命名
+robot_name: mybot_v3_real
+# 模型路径(URDF 用于 TF/RViz, XML 用于仿真/解析)
+urdf_relpath: robot/mybot_v3/urdf/mybot_v3.urdf
+mujoco_xml_relpath: robot/mybot_v3/xml/mybot_v3.xml
+isaac_xml_relpath: robot/mybot_v3/xml/mybot_v3.xml
+
+# 策略/跟踪控制阶段的关节 P/D 增益(关节侧)
+kp_joint: [40.0, 40.0, 50.0, 40.0, 40.0, 50.0, 40.0, 40.0, 50.0, 40.0, 40.0, 50.0]
+kd_joint: [2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0]
+# 电机侧阻尼补偿(防抖/抑振)
+kd_damp_motor: 0.1
+
+# 速度/观测缩放: 影响策略输入/输出的归一化
+lin_vel_scale: 2.0
+ang_vel_scale: 0.25
+dof_pos_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+dof_vel_scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+# 策略动作缩放: 输出动作幅度(越大越激进)
+action_scale: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+# 速度指令死区: 小于阈值的手柄/键盘输入视为 0
+cmd_deadband: 0.05
+# 策略控制周期(秒): 与 dt/decimation 共同决定控制频率
+control_dt: 0.02
+# 站起时间(秒): 从当前姿态插值到 standup_target_pos 的时长
+standup_duration: 2.0
+
+# 速度指令范围: 限制手柄/键盘输入的最大速度
+cmd_vx_min: -0.5
+cmd_vx_max: 1.0
+cmd_vy_min: -0.5
+cmd_vy_max: 0.5
+cmd_yaw_min: -1.0
+cmd_yaw_max: 1.0
+
+# 键盘增量步长(手柄为连续轴, 不受步长影响)
+cmd_vx_step: 0.1
+cmd_vy_step: 0.1
+cmd_yaw_step: 0.3
+
+# ---- UDP Teleop ----
+# 手机 Web 遥控: 通过 UDP 发送速度指令
+teleop_udp_enable: true
+# UDP 端口: 与 web_teleop/app.py 保持一致
+teleop_udp_port: 9870
+
+# ---- ROS2 Joy Teleop ----
+# Start joystick publisher with:
+#   ros2 run joy joy_node
+# 手柄输入来源: /joy 话题 (sensor_msgs/msg/Joy)
+joy_enable: true
+joy_topic: /joy
+# 摇杆死区: 小范围抖动过滤
+joy_axis_deadzone: 0.15
+# 手柄超时: 超时后速度归零, 防止断连后继续前进
+joy_timeout_s: 0.5
+# 轴映射: 将 Joy.axes[index] 映射到速度指令
+#   joy_axis_vx: 左摇杆前后(通常为 Y 轴)
+#   joy_axis_vy: 左摇杆左右(通常为 X 轴)
+#   joy_axis_yaw: 右摇杆左右(通常为 X 轴)
+joy_axis_vx: 1
+joy_axis_vy: 0
+joy_axis_yaw: 2
+# 轴方向反转: true 表示该轴方向取反
+joy_invert_vx: false
+joy_invert_vy: false
+joy_invert_yaw: false
+# 按键映射: 将 Joy.buttons[index] 触发到状态机命令
+#   Y: 进入 STAND_UP (站起)
+joy_button_stand_up: 0        # Y
+#   B: 进入 RETURN_DEFAULT (回默认姿态, 完成后 IDLE)
+joy_button_return_default: 1  # B
+#   A: 进入 RL 模式 (策略控制)
+joy_button_rl: 2              # A
+#   X: 进入 JOINT_DAMPING (关节阻尼/软回中)
+joy_button_damping: 3
+#   LB: 进入 SINGLE_STEP_RL (单步策略/调试)
+joy_button_single_step: 4
+#   RB: 进入 JOINT_SWEEP (单关节扫动/调试)
+joy_button_joint_sweep: 5
+#   BACK: 进入 IDLE (零力矩)
+joy_button_idle: 6
+#   START: 二次确认/允许执行(防误触)
+joy_button_confirm: 7
+#   LOGO/POWER: 急停 (立即切 IDLE 并速度归零)
+joy_button_emergency: 8
