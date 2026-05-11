@@ -26,10 +26,11 @@ joint_transmission_ratio: [6.33, 6.33, 14.77, 6.33, 6.33, 14.77, 6.33, 6.33, 14.
 #   default_dof_pos: 上电后默认姿态/RETURN_DEFAULT 目标
 #   standup_target_pos: STAND_UP 结束的目标姿态
 #   policy_dof_pos: 进入 RL 前的姿态偏置(策略观测基准)
-#                        FL_hip FL_th FL_cf  FR_hip FR_th FR_cf  RL_hip RL_th RL_cf  RR_hip RR_th RR_cf
-default_dof_pos:      [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
-standup_target_pos:   [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
-policy_dof_pos:       [  0.1,  0.8, -1.5,  -0.1,  0.8, -1.5,   0.1,  1.0, -1.5,  -0.1,  1.0, -1.5]
+# ---- 关节角度 (全部按 Policy DOF 顺序: FL, FR, RL, RR) ----
+#                         FL_hip FL_th FL_cf  FR_hip FR_th FR_cf  RL_hip RL_th RL_cf  RR_hip RR_th  RR_cf
+default_dof_pos:       [  0.1,  1.27, -2.70, -0.1,  1.27, -2.70,  0.1,  1.27, -2.70, -0.1, 1.27, -2.70]
+standup_target_pos:    [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  1.0,  -1.5,  -0.1,  1.0,  -1.5 ]
+policy_dof_pos:        [  0.1,  0.8,  -1.5,  -0.1,  0.8,  -1.5,   0.1,  1.0,  -1.5,  -0.1,  1.0,  -1.5 ]
 
 # 关节角度硬限位(关节侧语义): 用于保护结构与防止异常指令
 joint_pos_lower: [-0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69, -0.8, -1.04, -2.69]
@@ -103,17 +104,27 @@ control_dt: 0.02
 # 站起时间(秒): 从当前姿态插值到 standup_target_pos 的时长
 standup_duration: 2.0
 
-# 速度指令范围: 限制手柄/键盘输入的最大速度
-cmd_vx_min: -0.5
-cmd_vx_max: 1.0
-cmd_vy_min: -0.5
-cmd_vy_max: 0.5
-cmd_yaw_min: -1.0
-cmd_yaw_max: 1.0
+# # 速度指令范围: 限制手柄/键盘输入的最大速度
+# cmd_vx_min: -0.5
+# cmd_vx_max: 1.0
+# cmd_vy_min: -0.5
+# cmd_vy_max: 0.5
+# cmd_yaw_min: -1.0
+# cmd_yaw_max: 1.0
 
-# 键盘增量步长(手柄为连续轴, 不受步长影响)
-cmd_vx_step: 0.1
-cmd_vy_step: 0.1
+# # 键盘增量步长(手柄为连续轴, 不受步长影响)
+# cmd_vx_step: 0.1
+# cmd_vy_step: 0.1
+# cmd_yaw_step: 0.3
+cmd_vx_min: -1.0
+cmd_vx_max: 3.0  
+cmd_vy_min: -1.0
+cmd_vy_max: 1.0
+cmd_yaw_min: -1.2
+cmd_yaw_max: 1.2
+
+cmd_vx_step: 0.3
+cmd_vy_step: 0.3
 cmd_yaw_step: 0.3
 
 # ---- UDP Teleop ----
